@@ -16,6 +16,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "data/data_folder.h"
 #include "data/data_forum_topic.h"
 #include "data/data_chat_filters.h"
+#include "data/data_local_chat_filters.h"
 #include "data/data_saved_sublist.h"
 #include "core/application.h"
 #include "core/core_settings.h"
@@ -281,8 +282,12 @@ void Entry::notifyUnreadStateChange(const UnreadState &wasState) {
 	owner().chatsListFor(this)->unreadStateChanged(wasState, nowState);
 	auto &filters = owner().chatsFilters();
 	for (const auto &[filterId, links] : _chatListLinks) {
-		if (filterId) {
+		if (filterId > 0) {
 			filters.chatsList(filterId)->unreadStateChanged(
+				wasState,
+				nowState);
+		} else if (Data::IsLocalChatFilterListId(filterId)) {
+			owner().localChatFilters().chatsList(filterId)->unreadStateChanged(
 				wasState,
 				nowState);
 		}

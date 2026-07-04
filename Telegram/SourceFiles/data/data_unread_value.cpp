@@ -10,6 +10,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "core/application.h"
 #include "core/core_settings.h"
 #include "data/data_chat_filters.h"
+#include "data/data_local_chat_filters.h"
 #include "data/data_folder.h"
 #include "data/data_session.h"
 #include "main/main_session.h"
@@ -44,6 +45,9 @@ rpl::producer<Dialogs::UnreadState> UnreadStateValue(
 		FilterId filterId) {
 	if (filterId > 0) {
 		const auto filters = &session->data().chatsFilters();
+		return MainListUnreadState(filters->chatsList(filterId));
+	} else if (IsLocalChatFilterListId(filterId)) {
+		const auto filters = &session->data().localChatFilters();
 		return MainListUnreadState(filters->chatsList(filterId));
 	}
 	return MainListUnreadState(

@@ -12,6 +12,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "base/event_filter.h"
 #include "base/platform/base_platform_haptic.h"
 #include "data/data_chat_filters.h"
+#include "data/data_local_chat_filters.h"
 #include "data/data_messages.h"
 #include "data/data_peer.h"
 #include "data/data_session.h"
@@ -53,10 +54,17 @@ constexpr auto kBounceDuration = crl::time(400);
 		not_null<Window::SessionController*> controller,
 		not_null<PeerData*> current) {
 	auto &data = controller->session().data();
-	const auto filterId = controller->activeChatsFilterCurrent();
-	const auto list = filterId
-		? data.chatsFilters().chatsList(filterId)
-		: data.chatsList();
+	const auto list = [&] {
+		if (controller->localChatFiltersShownCurrent()) {
+			const auto filterId = controller->activeLocalChatFilterCurrent();
+			return data.localChatFilters().chatsList(
+				Data::LocalChatFilterListId(filterId));
+		}
+		const auto filterId = controller->activeChatsFilterCurrent();
+		return filterId
+			? data.chatsFilters().chatsList(filterId)
+			: data.chatsList();
+	}();
 	for (const auto &row : list->indexed()->all()) {
 		const auto history = row->history();
 		if (!history) {

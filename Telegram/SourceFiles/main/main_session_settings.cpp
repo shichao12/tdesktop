@@ -71,6 +71,22 @@ QByteArray SessionSettings::serialize() const {
 	size += sizeof(qint32)
 		+ _subsectionTabsModes.size() * (sizeof(quint64) + sizeof(qint32));
 	size += sizeof(qint32); // _phoneNumberHidden
+	size += sizeof(qint32) // _localChatFiltersShown
+		+ sizeof(qint32) // _nextLocalChatFilterId
+		+ sizeof(qint32); // _localChatFilters size
+	for (const auto &filter : _localChatFilters) {
+		size += sizeof(qint32)
+			+ Serialize::stringSize(filter.title)
+			+ sizeof(qint32)
+			+ filter.peers.size() * sizeof(quint64);
+	}
+	size += sizeof(qint32)
+		+ sizeof(qint32) * 2
+		+ _localChatFilterAllPinnedPeers.size() * sizeof(quint64);
+	for (const auto &filter : _localChatFilters) {
+		size += sizeof(qint32) * 2
+			+ filter.pinnedPeers.size() * sizeof(quint64);
+	}
 
 	auto result = QByteArray();
 	result.reserve(size);
@@ -159,6 +175,30 @@ QByteArray SessionSettings::serialize() const {
 			stream << SerializePeerId(peerId) << qint32(mode);
 		}
 		stream << qint32(_phoneNumberHidden.current() ? 1 : 0);
+		stream << qint32(_localChatFiltersShown ? 1 : 0);
+		stream << qint32(_nextLocalChatFilterId);
+		stream << qint32(_localChatFilters.size());
+		for (const auto &filter : _localChatFilters) {
+			stream << qint32(filter.id);
+			stream << filter.title;
+			stream << qint32(filter.peers.size());
+			for (const auto &peerId : filter.peers) {
+				stream << SerializePeerId(peerId);
+			}
+		}
+		stream << qint32(_localChatFilters.size() + 1);
+		stream << qint32(0);
+		stream << qint32(_localChatFilterAllPinnedPeers.size());
+		for (const auto &peerId : _localChatFilterAllPinnedPeers) {
+			stream << SerializePeerId(peerId);
+		}
+		for (const auto &filter : _localChatFilters) {
+			stream << qint32(filter.id);
+			stream << qint32(filter.pinnedPeers.size());
+			for (const auto &peerId : filter.pinnedPeers) {
+				stream << SerializePeerId(peerId);
+			}
+		}
 	}
 
 	Ensures(result.size() == size);
@@ -234,6 +274,10 @@ void SessionSettings::addFromSerialized(const QByteArray &serialized) {
 	std::vector<int32> moderateCommonGroups;
 	qint32 disableSharingBoxShowsCount = 0;
 	qint32 phoneNumberHidden = 0;
+	qint32 localChatFiltersShown = 0;
+	qint32 nextLocalChatFilterId = _nextLocalChatFilterId;
+	std::vector<Data::LocalChatFilter> localChatFilters;
+	std::vector<PeerId> localChatFilterAllPinnedPeers;
 
 	stream >> versionTag;
 	if (versionTag == kVersionTag) {
@@ -692,6 +736,103 @@ void SessionSettings::addFromSerialized(const QByteArray &serialized) {
 	if (!stream.atEnd()) {
 		stream >> phoneNumberHidden;
 	}
+	if (!stream.atEnd()) {
+		stream >> localChatFiltersShown;
+	}
+	if (!stream.atEnd()) {
+		stream >> nextLocalChatFilterId;
+	}
+	if (!stream.atEnd()) {
+		auto count = qint32(0);
+		stream >> count;
+		if (stream.status() == QDataStream::Ok) {
+			if (count < 0) {
+				LOG(("App Error: "
+					"Bad data for SessionSettings::addFromSerialized()"));
+				return;
+			}
+			for (auto i = 0; i != count; ++i) {
+				auto filter = Data::LocalChatFilter();
+				auto peersCount = qint32(0);
+				stream >> filter.id;
+				stream >> filter.title;
+				stream >> peersCount;
+				if (stream.status() != QDataStream::Ok) {
+					LOG(("App Error: "
+						"Bad data for SessionSettings::addFromSerialized()"));
+					return;
+				}
+				if (peersCount < 0) {
+					LOG(("App Error: "
+						"Bad data for SessionSettings::addFromSerialized()"));
+					return;
+				}
+				filter.peers.reserve(peersCount);
+				for (auto j = 0; j != peersCount; ++j) {
+					auto peerId = quint64();
+					stream >> peerId;
+					if (stream.status() != QDataStream::Ok) {
+						LOG(("App Error: "
+							"Bad data for SessionSettings::addFromSerialized()"));
+						return;
+					}
+					filter.peers.push_back(DeserializePeerId(peerId));
+				}
+				if (filter.id > 0 && !filter.title.isEmpty()) {
+					localChatFilters.push_back(std::move(filter));
+				}
+			}
+		}
+	}
+	if (!stream.atEnd()) {
+		auto count = qint32(0);
+		stream >> count;
+		if (stream.status() == QDataStream::Ok) {
+			if (count < 0) {
+				LOG(("App Error: "
+					"Bad data for SessionSettings::addFromSerialized()"));
+				return;
+			}
+			for (auto i = 0; i != count; ++i) {
+				auto filterId = qint32(0);
+				auto peersCount = qint32(0);
+				stream >> filterId;
+				stream >> peersCount;
+				if (stream.status() != QDataStream::Ok) {
+					LOG(("App Error: "
+						"Bad data for SessionSettings::addFromSerialized()"));
+					return;
+				}
+				if (peersCount < 0) {
+					LOG(("App Error: "
+						"Bad data for SessionSettings::addFromSerialized()"));
+					return;
+				}
+				auto peers = std::vector<PeerId>();
+				peers.reserve(peersCount);
+				for (auto j = 0; j != peersCount; ++j) {
+					auto peerId = quint64();
+					stream >> peerId;
+					if (stream.status() != QDataStream::Ok) {
+						LOG(("App Error: "
+							"Bad data for SessionSettings::addFromSerialized()"));
+						return;
+					}
+					peers.push_back(DeserializePeerId(peerId));
+				}
+				if (filterId == 0) {
+					localChatFilterAllPinnedPeers = std::move(peers);
+				} else {
+					for (auto &filter : localChatFilters) {
+						if (filter.id == filterId) {
+							filter.pinnedPeers = std::move(peers);
+							break;
+						}
+					}
+				}
+			}
+		}
+	}
 	if (stream.status() != QDataStream::Ok) {
 		LOG(("App Error: "
 			"Bad data for SessionSettings::addFromSerialized()"));
@@ -758,6 +899,10 @@ void SessionSettings::addFromSerialized(const QByteArray &serialized) {
 	_moderateCommonGroups = std::move(moderateCommonGroups);
 	_disableSharingBoxShowsCount = disableSharingBoxShowsCount;
 	_phoneNumberHidden = (phoneNumberHidden == 1);
+	_localChatFiltersShown = (localChatFiltersShown == 1);
+	_nextLocalChatFilterId = std::max(nextLocalChatFilterId, qint32(1));
+	_localChatFilters = std::move(localChatFilters);
+	_localChatFilterAllPinnedPeers = std::move(localChatFilterAllPinnedPeers);
 
 	if (version < 2) {
 		app.setLastSeenWarningSeen(appLastSeenWarningSeen == 1);

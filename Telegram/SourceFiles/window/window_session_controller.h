@@ -650,6 +650,14 @@ public:
 	void setActiveChatsFilter(
 		FilterId id,
 		const SectionShow &params = SectionShow::Way::ClearStack);
+	[[nodiscard]] rpl::producer<bool> localChatFiltersShown() const;
+	[[nodiscard]] bool localChatFiltersShownCurrent() const;
+	void setLocalChatFiltersShown(bool shown);
+	[[nodiscard]] rpl::producer<FilterId> activeLocalChatFilter() const;
+	[[nodiscard]] FilterId activeLocalChatFilterCurrent() const;
+	void setActiveLocalChatFilter(
+		FilterId id,
+		const SectionShow &params = SectionShow::Way::ClearStack);
 
 	void toggleFiltersMenu(bool enabled);
 	[[nodiscard]] rpl::producer<> filtersMenuChanged() const;
@@ -850,6 +858,8 @@ private:
 	base::Timer _invitePeekTimer;
 
 	rpl::variable<FilterId> _activeChatsFilter;
+	rpl::variable<bool> _localChatFiltersShown = false;
+	rpl::variable<FilterId> _activeLocalChatFilter = 0;
 
 	rpl::variable<int> _connectingBottomSkip;
 

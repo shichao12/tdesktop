@@ -58,6 +58,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "data/data_photo_media.h"
 #include "data/data_changes.h"
 #include "data/data_group_call.h"
+#include "data/data_local_chat_filters.h"
 #include "data/data_forum.h"
 #include "data/data_forum_topic.h"
 #include "data/data_chat_filters.h"
@@ -1570,6 +1571,7 @@ SessionController::SessionController(
 		GifPauseReason::TabbedPanel))
 , _invitePeekTimer([=] { checkInvitePeek(); })
 , _activeChatsFilter(session->data().chatsFilters().defaultId())
+, _localChatFiltersShown(session->settings().localChatFiltersShown())
 , _openedFolder(window->id().folder())
 , _defaultChatTheme(std::make_shared<Ui::ChatTheme>())
 , _chatStyle(std::make_unique<Ui::ChatStyle>(session->colorIndicesValue())) {
@@ -3200,6 +3202,60 @@ void SessionController::setActiveChatsFilter(
 	}
 }
 
+rpl::producer<bool> SessionController::localChatFiltersShown() const {
+	return _localChatFiltersShown.value();
+}
+
+bool SessionController::localChatFiltersShownCurrent() const {
+	return _localChatFiltersShown.current();
+}
+
+void SessionController::setLocalChatFiltersShown(bool shown) {
+	if (!isPrimary()) {
+		return;
+	}
+	if (_localChatFiltersShown.current() == shown) {
+		return;
+	}
+	resetFakeUnreadWhileOpened();
+	_localChatFiltersShown = shown;
+	session().settings().setLocalChatFiltersShown(shown);
+	session().saveSettingsDelayed();
+	closeForum();
+	closeFolder();
+}
+
+rpl::producer<FilterId> SessionController::activeLocalChatFilter() const {
+	return _activeLocalChatFilter.value();
+}
+
+FilterId SessionController::activeLocalChatFilterCurrent() const {
+	return _activeLocalChatFilter.current();
+}
+
+void SessionController::setActiveLocalChatFilter(
+		FilterId id,
+		const SectionShow &params) {
+	if (!isPrimary()) {
+		return;
+	}
+	if (id && !session().data().localChatFilters().lookupRuntime(id)) {
+		id = 0;
+	}
+	const auto changed = (activeLocalChatFilterCurrent() != id);
+	if (changed) {
+		resetFakeUnreadWhileOpened();
+	}
+	_activeLocalChatFilter.force_assign(id);
+	if (id || !changed) {
+		closeForum();
+		closeFolder();
+	}
+	if (adaptive().isOneColumn()) {
+		clearSectionStack(params);
+	}
+}
+
 void SessionController::showAddContact() {
 	_window->show(Box<AddContactBox>(&session()));
 }
@@ -3991,6 +4047,39 @@ bool CheckAndJumpToNearChatsFilter(
 		not_null<SessionController*> controller,
 		bool isNext,
 		bool jump) {
+	if (controller->localChatFiltersShownCurrent()) {
+		const auto id = controller->activeLocalChatFilterCurrent();
+		const auto &local = controller->session().data().localChatFilters();
+		const auto &list = local.list();
+		const auto count = int(list.size()) + 1;
+		const auto index = [&] {
+			if (!id) {
+				return 0;
+			} else if (!Data::IsLocalChatFilterRuntimeId(id)) {
+				return count;
+			}
+			const auto i = ranges::find(
+				list,
+				Data::LocalChatFilterIdFromRuntime(id),
+				&Data::LocalChatFilter::id);
+			return (i != end(list))
+				? int(i - begin(list)) + 1
+				: count;
+		}();
+		if (index == count && id != 0) {
+			return false;
+		}
+		const auto changed = index + (isNext ? 1 : -1);
+		if (changed >= count || changed < 0) {
+			return false;
+		}
+		if (jump) {
+			controller->setActiveLocalChatFilter(changed
+				? Data::LocalChatFilterRuntimeId(list[changed - 1].id)
+				: FilterId());
+		}
+		return true;
+	}
 	const auto id = controller->activeChatsFilterCurrent();
 	const auto session = &controller->session();
 	const auto list = &session->data().chatsFilters().list();

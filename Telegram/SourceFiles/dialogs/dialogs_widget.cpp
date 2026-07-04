@@ -83,6 +83,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "data/data_changes.h"
 #include "data/data_download_manager.h"
 #include "data/data_chat_filters.h"
+#include "data/data_local_chat_filters.h"
 #include "data/data_saved_messages.h"
 #include "data/data_saved_sublist.h"
 #include "data/data_stories.h"
@@ -428,10 +429,15 @@ Widget::Widget(
 		} else if (_openedFolder) {
 			return (update.history->folder() == _openedFolder)
 				&& !update.history->isPinnedDialog(FilterId());
+		} else if (controller->localChatFiltersShownCurrent()) {
+			const auto filterId = Data::LocalChatFilterListId(
+				controller->activeLocalChatFilterCurrent());
+			return update.history->inChatList(filterId)
+				&& !update.history->isPinnedDialog(filterId);
 		} else {
+			const auto filterId = controller->activeChatsFilterCurrent();
 			return !update.history->folder()
-				&& !update.history->isPinnedDialog(
-					controller->activeChatsFilterCurrent());
+				&& !update.history->isPinnedDialog(filterId);
 		}
 	}) | rpl::on_next([=](const Data::HistoryUpdate &update) {
 		jumpToTop(true);
@@ -733,6 +739,9 @@ Widget::Widget(
 
 void Widget::setupSwipeBack() {
 	const auto isMainList = [=] {
+		if (controller()->localChatFiltersShownCurrent()) {
+			return !controller()->activeLocalChatFilterCurrent();
+		}
 		const auto current = controller()->activeChatsFilterCurrent();
 		const auto &chatsFilters = session().data().chatsFilters();
 		if (chatsFilters.has()) {
@@ -1105,6 +1114,7 @@ void Widget::setupTopBarSuggestions() {
 		) | rpl::filter(_1 == nullptr) | rpl::map([=] {
 			auto on = rpl::combine(
 				controller()->activeChatsFilter(),
+				controller()->localChatFiltersShown(),
 				_openedFolderOrForumChanges.events_starting_with(false),
 				widthValue() | rpl::map(
 					_1 >= st::columnMinimalWidthLeft
@@ -1114,11 +1124,13 @@ void Widget::setupTopBarSuggestions() {
 				_jumpToDate->toggledValue()
 			) | rpl::map([=](
 					FilterId id,
+					bool localShown,
 					bool folderOrForum,
 					bool wide,
 					bool search,
 					bool searchInPeer) {
-				return !folderOrForum
+				return !localShown
+					&& !folderOrForum
 					&& wide
 					&& !search
 					&& !searchInPeer
@@ -1178,8 +1190,10 @@ void Widget::setupMoreChatsBar() {
 	if (_layout == Layout::Child) {
 		return;
 	}
-	controller()->activeChatsFilter(
-	) | rpl::on_next([=](FilterId id) {
+	rpl::combine(
+		controller()->activeChatsFilter(),
+		controller()->localChatFiltersShown()
+	) | rpl::on_next([=](FilterId id, bool localShown) {
 		storiesToggleExplicitExpand(false);
 		const auto cancelled = cancelSearch({ .forceFullCancel = true });
 		const auto guard = gsl::finally([&] {
@@ -1188,7 +1202,7 @@ void Widget::setupMoreChatsBar() {
 			}
 		});
 
-		if (!id) {
+		if (localShown || !id) {
 			_moreChatsBar = nullptr;
 			updateControlsGeometry();
 			return;
@@ -1712,7 +1726,11 @@ void Widget::toggleFiltersMenu(bool enabled) {
 			&session(),
 			[this](FilterId id) {
 				_scroll->scrollToY(0);
-				if (controller()->activeChatsFilterCurrent() != id) {
+				if (controller()->localChatFiltersShownCurrent()) {
+					if (controller()->activeLocalChatFilterCurrent() != id) {
+						controller()->setActiveLocalChatFilter(id);
+					}
+				} else if (controller()->activeChatsFilterCurrent() != id) {
 					controller()->setActiveChatsFilter(id);
 				}
 			},
@@ -2222,12 +2240,19 @@ void Widget::jumpToTop(bool belowPinned) {
 	if ((_searchState.query.trimmed().isEmpty() && !_searchState.inChat)) {
 		auto to = 0;
 		if (belowPinned) {
-			const auto list = _openedForum
-				? _openedForum->topicsList()
-				: controller()->activeChatsFilterCurrent()
-				? session().data().chatsFilters().chatsList(
-					controller()->activeChatsFilterCurrent())
-				: session().data().chatsList(_openedFolder);
+			const auto list = [&] {
+				if (_openedForum) {
+					return _openedForum->topicsList();
+				} else if (controller()->localChatFiltersShownCurrent()) {
+					const auto id = controller()->activeLocalChatFilterCurrent();
+					return session().data().localChatFilters().chatsList(
+						Data::LocalChatFilterListId(id));
+				} else if (controller()->activeChatsFilterCurrent()) {
+					return session().data().chatsFilters().chatsList(
+						controller()->activeChatsFilterCurrent());
+				}
+				return session().data().chatsList(_openedFolder);
+			}();
 			const auto count = int(list->pinned()->order().size());
 			const auto row = _inner->st()->height;
 			const auto min = (row * (count * 2 + 1) - _scroll->height()) / 2;
@@ -2527,6 +2552,12 @@ void Widget::escape() {
 		} else if (controller()->activeChatEntryCurrent().key) {
 			controller()->content()->dialogsCancelled();
 		} else if (controller()->isPrimary()) {
+			if (controller()->localChatFiltersShownCurrent()) {
+				if (controller()->activeLocalChatFilterCurrent()) {
+					controller()->setActiveLocalChatFilter(0);
+				}
+				return;
+			}
 			const auto filters = &session().data().chatsFilters();
 			const auto &list = filters->list();
 			const auto first = list.empty() ? FilterId() : list.front().id();

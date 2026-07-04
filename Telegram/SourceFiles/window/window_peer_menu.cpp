@@ -7,6 +7,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "window/window_peer_menu.h"
 
+#include "base/algorithm.h"
 #include "base/call_delayed.h"
 #include "menu/menu_check_item.h"
 #include "boxes/about_box.h"
@@ -111,6 +112,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "data/data_saved_sublist.h"
 #include "data/data_histories.h"
 #include "data/data_chat_filters.h"
+#include "data/data_local_chat_filters.h"
 #include "data/data_peer_values.h"
 #include "dialogs/dialogs_key.h"
 #include "core/application.h"
@@ -123,6 +125,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "styles/style_chat_helpers.h"
 #include "styles/style_credits.h"
 #include "styles/style_layers.h"
+#include "styles/style_media_player.h"
 #include "styles/style_boxes.h"
 #include "styles/style_window.h" // st::windowMinWidth
 #include "styles/style_menu_icons.h"
@@ -233,6 +236,68 @@ void MarkAsReadChatList(not_null<Dialogs::MainList*> list) {
 		}
 	}
 	ranges::for_each(mark, MarkAsReadThread);
+}
+
+constexpr auto kMaxLocalChatFilterTitleLength = 32;
+
+void CreateLocalChatFilterBox(
+		not_null<Ui::GenericBox*> box,
+		not_null<Window::SessionController*> controller,
+		not_null<History*> history) {
+	box->setTitle(tr::lng_filters_local_create());
+
+	const auto field = box->addRow(object_ptr<Ui::InputField>(
+		box,
+		st::defaultInputField,
+		tr::lng_filters_local_name(),
+		tr::lng_filters_local_default(tr::now)));
+	field->setMaxLength(kMaxLocalChatFilterTitleLength);
+	field->selectAll();
+	box->setFocusCallback([=] {
+		field->setFocusFast();
+	});
+	const auto submit = [=] {
+		auto title = base::CleanAndSimplify(field->getLastText());
+		if (title.isEmpty()) {
+			title = tr::lng_filters_local_default(tr::now);
+		}
+		box->closeBox();
+		controller->session().data().localChatFilters().create(
+			std::move(title),
+			history);
+	};
+	field->submits() | rpl::on_next(submit, field->lifetime());
+	box->addButton(tr::lng_filters_create_button(), submit);
+	box->addButton(tr::lng_cancel(), [=] { box->closeBox(); });
+}
+
+void FillLocalChatFiltersMenu(
+		not_null<Window::SessionController*> controller,
+		not_null<Ui::PopupMenu*> menu,
+		not_null<History*> history) {
+	const auto addAction = Ui::Menu::CreateAddActionCallback(menu);
+	const auto local = &controller->session().data().localChatFilters();
+	for (const auto &filter : local->list()) {
+		const auto contains = local->contains(filter.id, history);
+		addAction(
+			Ui::Text::FixAmpersandInAction(filter.title),
+			[=] {
+				local->setContains(filter.id, history, !contains);
+			},
+			contains ? &st::mediaPlayerMenuCheck : &st::menuIconAddToFolder);
+	}
+	if (!local->list().empty()) {
+		menu->addSeparator();
+	}
+	addAction(
+		tr::lng_filters_local_create(tr::now),
+		[=] {
+			controller->show(Box(
+				CreateLocalChatFilterBox,
+				controller,
+				history));
+		},
+		&st::menuIconAddToFolder);
 }
 
 void PeerMenuAddMuteSubmenuAction(
@@ -413,6 +478,10 @@ bool PinnedLimitReached(
 	const auto owner = &history->owner();
 	if (owner->pinnedCanPin(filterId, history)) {
 		return false;
+	}
+	if (Data::IsLocalChatFilterListId(filterId)) {
+		controller->showToast(tr::lng_cant_do_this(tr::now));
+		return true;
 	}
 	controller->show(
 		Box(FilterPinsLimitBox, &history->session(), filterId));
@@ -651,7 +720,6 @@ void Filler::addToggleFolder() {
 	const auto history = _request.key.history();
 	if (_topic
 		|| !history
-		|| !history->owner().chatsFilters().has()
 		|| !history->inChatList()) {
 		return;
 	} else if (_request.section == Section::SubsectionTabsMenu
@@ -659,12 +727,23 @@ void Filler::addToggleFolder() {
 		&& !_topic) {
 		return;
 	}
+	if (history->owner().chatsFilters().has()) {
+		_addAction(PeerMenuCallback::Args{
+			.text = tr::lng_filters_menu_add(tr::now),
+			.handler = nullptr,
+			.icon = &st::menuIconAddToFolder,
+			.fillSubmenu = [&](not_null<Ui::PopupMenu*> menu) {
+				FillChooseFilterMenu(controller, menu, history);
+			},
+			.submenuSt = &st::foldersMenu,
+		});
+	}
 	_addAction(PeerMenuCallback::Args{
-		.text = tr::lng_filters_menu_add(tr::now),
+		.text = tr::lng_filters_local_menu_add(tr::now),
 		.handler = nullptr,
 		.icon = &st::menuIconAddToFolder,
 		.fillSubmenu = [&](not_null<Ui::PopupMenu*> menu) {
-			FillChooseFilterMenu(controller, menu, history);
+			FillLocalChatFiltersMenu(controller, menu, history);
 		},
 		.submenuSt = &st::foldersMenu,
 	});
@@ -4232,6 +4311,21 @@ void TogglePinnedThread(
 		return;
 	}
 	const auto owner = &history->owner();
+
+	if (Data::IsLocalChatFilterListId(filterId)) {
+		const auto isPinned = !history->isPinnedDialog(filterId);
+		if (isPinned && PinnedLimitReached(controller, history, filterId)) {
+			return;
+		}
+		owner->setChatPinned(history, filterId, isPinned);
+		if (isPinned) {
+			controller->content()->dialogsToUp();
+			if (onToggled) {
+				onToggled();
+			}
+		}
+		return;
+	}
 
 	// This can happen when you remove this filter from another client.
 	if (!ranges::contains(

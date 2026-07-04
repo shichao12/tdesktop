@@ -631,6 +631,8 @@ PRIVATE
     data/data_chat.h
     data/data_chat_filters.cpp
     data/data_chat_filters.h
+    data/data_local_chat_filters.cpp
+    data/data_local_chat_filters.h
     data/data_chat_participant_status.cpp
     data/data_chat_participant_status.h
     data/data_changes.cpp

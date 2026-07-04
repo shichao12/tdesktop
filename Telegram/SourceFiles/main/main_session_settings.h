@@ -8,6 +8,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #pragma once
 
 #include "data/data_auto_download.h"
+#include "data/data_local_chat_filters.h"
 #include "data/notify/data_peer_notify_settings.h"
 #include "data/data_authorization.h"
 #include "ui/rect_part.h"
@@ -134,6 +135,33 @@ public:
 		_dialogsFiltersEnabled = value;
 	}
 
+	[[nodiscard]] bool localChatFiltersShown() const {
+		return _localChatFiltersShown;
+	}
+	void setLocalChatFiltersShown(bool value) {
+		_localChatFiltersShown = value;
+	}
+	[[nodiscard]] int nextLocalChatFilterId() const {
+		return _nextLocalChatFilterId;
+	}
+	void setNextLocalChatFilterId(int id) {
+		_nextLocalChatFilterId = id;
+	}
+	[[nodiscard]] const std::vector<Data::LocalChatFilter> &localChatFilters(
+			) const {
+		return _localChatFilters;
+	}
+	void setLocalChatFilters(std::vector<Data::LocalChatFilter> filters) {
+		_localChatFilters = std::move(filters);
+	}
+	[[nodiscard]] const std::vector<PeerId> &localChatFilterAllPinnedPeers(
+			) const {
+		return _localChatFilterAllPinnedPeers;
+	}
+	void setLocalChatFilterAllPinnedPeers(std::vector<PeerId> peers) {
+		_localChatFilterAllPinnedPeers = std::move(peers);
+	}
+
 	[[nodiscard]] bool photoEditorHintShown() const;
 	void incrementPhotoEditorHintShown();
 
@@ -225,6 +253,10 @@ private:
 	base::flat_map<Data::DefaultNotify, ushort> _ringtoneDefaultVolumes;
 	base::flat_map<ThreadId, ushort> _ringtoneVolumes;
 	bool _dialogsFiltersEnabled = false;
+	bool _localChatFiltersShown = false;
+	int _nextLocalChatFilterId = 1;
+	std::vector<Data::LocalChatFilter> _localChatFilters;
+	std::vector<PeerId> _localChatFilterAllPinnedPeers;
 	int _photoEditorHintShowsCount = 0;
 	int _disableSharingBoxShowsCount = 0;
 	std::vector<TimeId> _mutePeriods;

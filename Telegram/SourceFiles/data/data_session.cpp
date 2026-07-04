@@ -65,6 +65,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "data/data_poll.h"
 #include "data/data_replies_list.h"
 #include "data/data_chat_filters.h"
+#include "data/data_local_chat_filters.h"
 #include "dialogs/dialogs_entry.h"
 #include "dialogs/dialogs_row.h"
 #include "base/options.h"
@@ -250,6 +251,7 @@ Session::Session(not_null<Main::Session*> session)
 , _groups(this)
 , _aiComposeTones(std::make_unique<AiComposeTones>(session))
 , _chatsFilters(std::make_unique<ChatFilters>(this))
+, _localChatFilters(std::make_unique<LocalChatFilters>(this))
 , _cloudThemes(std::make_unique<CloudThemes>(session))
 , _sendActionManager(std::make_unique<SendActionManager>())
 , _streaming(std::make_unique<Streaming>(this))
@@ -2501,6 +2503,11 @@ void Session::setChatPinned(
 		bool pinned) {
 	Expects(key.entry()->folderKnown());
 
+	if (Data::IsLocalChatFilterListId(filterId)) {
+		localChatFilters().setChatPinned(key, filterId, pinned);
+		notifyPinnedDialogsOrderUpdated();
+		return;
+	}
 	const auto list = (filterId
 		? chatsFilters().chatsList(filterId)
 		: chatsListFor(key.entry()))->pinned();
@@ -2618,6 +2625,9 @@ bool Session::pinnedCanPin(
 		not_null<History*> history) const {
 	Expects(filterId != 0);
 
+	if (Data::IsLocalChatFilterListId(filterId)) {
+		return localChatFilters().pinnedCanPin(filterId, history);
+	}
 	const auto &list = chatsFilters().list();
 	const auto i = ranges::find(list, filterId, &Data::ChatFilter::id);
 	return (i == end(list))
@@ -2633,6 +2643,9 @@ int Session::pinnedChatsLimit(Data::Folder *folder) const {
 }
 
 int Session::pinnedChatsLimit(FilterId filterId) const {
+	if (Data::IsLocalChatFilterListId(filterId)) {
+		return localChatFilters().pinnedLimit(filterId);
+	}
 	const auto limits = Data::PremiumLimits(_session);
 	return limits.dialogFiltersChatsCurrent();
 }
@@ -2666,6 +2679,9 @@ rpl::producer<int> Session::maxPinnedChatsLimitValue(
 
 rpl::producer<int> Session::maxPinnedChatsLimitValue(
 		FilterId filterId) const {
+	if (Data::IsLocalChatFilterListId(filterId)) {
+		return rpl::single(localChatFilters().pinnedLimit(filterId));
+	}
 	// Premium limit from appconfig.
 	// We always use premium limit in the MainList limit producer,
 	// because it slices the list to that limit. We don't want to slice
@@ -2710,6 +2726,9 @@ const std::vector<Dialogs::Key> &Session::pinnedChatsOrder(
 
 const std::vector<Dialogs::Key> &Session::pinnedChatsOrder(
 		FilterId filterId) const {
+	if (Data::IsLocalChatFilterListId(filterId)) {
+		return localChatFilters().pinnedOrder(filterId);
+	}
 	return chatsFilters().chatsList(filterId)->pinned()->order();
 }
 
@@ -2735,6 +2754,11 @@ void Session::reorderTwoPinnedChats(
 	Expects(filterId || (key1.entry()->folder() == key2.entry()->folder()));
 
 	const auto topic = key1.topic();
+	if (!topic && Data::IsLocalChatFilterListId(filterId)) {
+		localChatFilters().reorderPinned(filterId, key1, key2);
+		notifyPinnedDialogsOrderUpdated();
+		return;
+	}
 	const auto list = topic
 		? topic->forum()->topicsList()
 		: filterId
@@ -5280,6 +5304,45 @@ void Session::refreshChatListEntry(Dialogs::Key key) {
 			_chatListEntryRefreshes.fire(std::move(event));
 		}
 	}
+	for (const auto &filter : _localChatFilters->list()) {
+		const auto id = LocalChatFilterRuntimeId(filter.id);
+		const auto filterList = localChatFilters().chatsList(id);
+		auto event = ChatListEntryRefresh{ .key = key, .filterId = id };
+		if (_localChatFilters->contains(filter.id, history)) {
+			event.existenceChanged = !entry->inChatList(id);
+			if (event.existenceChanged) {
+				entry->addToChatList(id, filterList);
+			} else {
+				event.moved = entry->adjustByPosInChatList(id, filterList);
+			}
+		} else if (entry->inChatList(id)) {
+			entry->removeFromChatList(id, filterList);
+			event.existenceChanged = true;
+		}
+		if (event) {
+			_chatListEntryRefreshes.fire(std::move(event));
+		}
+	}
+	{
+		const auto id = LocalChatFilterAllRuntimeId();
+		const auto filterList = localChatFilters().chatsList(id);
+		auto event = ChatListEntryRefresh{ .key = key, .filterId = id };
+		if (!history->folder() && !_localChatFilters->containsAny(history)) {
+			event.existenceChanged = !entry->inChatList(id);
+			if (event.existenceChanged) {
+				entry->addToChatList(id, filterList);
+			} else {
+				event.moved = entry->adjustByPosInChatList(id, filterList);
+			}
+		} else if (entry->inChatList(id)) {
+			entry->removeFromChatList(id, filterList);
+			event.existenceChanged = true;
+		}
+		if (event) {
+			_chatListEntryRefreshes.fire(std::move(event));
+		}
+	}
+	_localChatFilters->refreshPinnedOrder(history);
 
 	if (creating) {
 		if (const auto from = history->peer->migrateFrom()) {
@@ -5311,6 +5374,11 @@ void Session::refreshChatListUnreadOnTop() {
 	if (const auto folder = folderLoaded(Data::Folder::kId)) {
 		collect(folder->chatsList());
 	}
+	collect(_localChatFilters->chatsList(LocalChatFilterAllRuntimeId()));
+	for (const auto &filter : _localChatFilters->list()) {
+		collect(_localChatFilters->chatsList(
+			LocalChatFilterRuntimeId(filter.id)));
+	}
 	for (const auto &entry : entries) {
 		entry->updateChatListSortPosition();
 	}
@@ -5335,6 +5403,28 @@ void Session::removeChatListEntry(Dialogs::Key key) {
 				.existenceChanged = true
 			});
 		}
+	}
+	for (const auto &filter : _localChatFilters->list()) {
+		const auto id = LocalChatFilterRuntimeId(filter.id);
+		if (entry->inChatList(id)) {
+			entry->removeFromChatList(id, localChatFilters().chatsList(id));
+			_chatListEntryRefreshes.fire(ChatListEntryRefresh{
+				.key = key,
+				.filterId = id,
+				.existenceChanged = true
+			});
+		}
+	}
+	const auto localAllId = LocalChatFilterAllRuntimeId();
+	if (entry->inChatList(localAllId)) {
+		entry->removeFromChatList(
+			localAllId,
+			localChatFilters().chatsList(localAllId));
+		_chatListEntryRefreshes.fire(ChatListEntryRefresh{
+			.key = key,
+			.filterId = localAllId,
+			.existenceChanged = true
+		});
 	}
 	const auto mainList = chatsListFor(entry);
 	entry->removeFromChatList(0, mainList);

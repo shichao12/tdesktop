@@ -8,6 +8,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/widgets/chat_filters_tabs_strip.h"
 
 #include "api/api_chat_filters_remove_manager.h"
+#include "base/algorithm.h"
 #include "boxes/choose_filter_box.h"
 #include "boxes/filters/edit_filter_box.h"
 #include "boxes/premium_limits_box.h"
@@ -15,6 +16,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "core/shortcuts.h"
 #include "core/ui_integration.h"
 #include "data/data_chat_filters.h"
+#include "data/data_local_chat_filters.h"
 #include "data/data_peer_values.h" // Data::AmPremiumValue.
 #include "data/data_premium_limits.h"
 #include "data/data_session.h"
@@ -23,9 +25,13 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "lang/lang_keys.h"
 #include "main/main_session.h"
 #include "settings/sections/settings_folders.h"
+#include "menu/menu_checked_action.h"
 #include "ui/widgets/menu/menu_action.h"
+#include "ui/layers/generic_box.h"
 #include "ui/power_saving.h"
 #include "ui/ui_utility.h"
+#include "ui/widgets/fields/input_field.h"
+#include "ui/boxes/confirm_box.h"
 #include "ui/widgets/chat_filters_tabs_slider_reorder.h"
 #include "ui/widgets/menu/menu_add_action_callback_factory.h"
 #include "ui/widgets/popup_menu.h"
@@ -35,6 +41,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "window/window_peer_menu.h"
 #include "window/window_session_controller.h"
 #include "styles/style_dialogs.h" // dialogsSearchTabs
+#include "styles/style_chat_helpers.h"
 #include "styles/style_media_player.h" // mediaPlayerMenuCheck
 #include "styles/style_menu_icons.h"
 
@@ -55,13 +62,170 @@ struct State final {
 
 	std::unique_ptr<Ui::ChatsFiltersTabsReorder> reorder;
 	bool ignoreRefresh = false;
+	bool lastLocalShown = false;
 };
+
+constexpr auto kMaxLocalChatFilterTitleLength = 32;
+
+void EditLocalChatFilterNameBox(
+		not_null<Ui::GenericBox*> box,
+		not_null<Window::SessionController*> controller,
+		int id) {
+	const auto create = (id == 0);
+	const auto filter = create
+		? nullptr
+		: controller->session().data().localChatFilters().lookup(id);
+	box->setTitle(create
+		? tr::lng_filters_local_create()
+		: tr::lng_filters_local_rename());
+
+	const auto initial = filter
+		? filter->title
+		: tr::lng_filters_local_default(tr::now);
+	const auto field = box->addRow(object_ptr<Ui::InputField>(
+		box,
+		st::defaultInputField,
+		tr::lng_filters_local_name(),
+		initial));
+	field->setMaxLength(kMaxLocalChatFilterTitleLength);
+	field->selectAll();
+	box->setFocusCallback([=] {
+		field->setFocusFast();
+	});
+	const auto submit = [=] {
+		auto title = base::CleanAndSimplify(field->getLastText());
+		if (title.isEmpty()) {
+			title = tr::lng_filters_local_default(tr::now);
+		}
+		box->closeBox();
+		auto &local = controller->session().data().localChatFilters();
+		if (create) {
+			const auto created = local.create(std::move(title));
+			controller->setLocalChatFiltersShown(true);
+			controller->setActiveLocalChatFilter(
+				Data::LocalChatFilterRuntimeId(created));
+		} else {
+			local.rename(id, std::move(title));
+		}
+	};
+	field->submits() | rpl::on_next(submit, field->lifetime());
+	if (create) {
+		box->addButton(tr::lng_filters_create_button(), submit);
+	} else {
+		box->addButton(tr::lng_settings_save(), submit);
+	}
+	box->addButton(tr::lng_cancel(), [=] { box->closeBox(); });
+}
+
+void AddFilterSourceActions(
+		not_null<Ui::PopupMenu*> menu,
+		not_null<Window::SessionController*> controller) {
+	const auto local = controller->localChatFiltersShownCurrent();
+	::Menu::AddCheckedAction(
+		menu,
+		tr::lng_filters_source_official(tr::now),
+		[=] { controller->setLocalChatFiltersShown(false); },
+		&st::menuIconShowInFolder,
+		!local);
+	::Menu::AddCheckedAction(
+		menu,
+		tr::lng_filters_source_local(tr::now),
+		[=] { controller->setLocalChatFiltersShown(true); },
+		&st::menuIconAddToFolder,
+		local);
+	menu->addSeparator();
+}
+
+void ShowLocalMenu(
+		not_null<Ui::RpWidget*> parent,
+		not_null<Window::SessionController*> controller,
+		not_null<State*> state,
+		int index) {
+	const auto session = &controller->session();
+	const auto &list = session->data().localChatFilters().list();
+	const auto localIndex = index - 1;
+	const auto hasLocalFilter = (localIndex >= 0)
+		&& (localIndex < int(list.size()));
+	const auto localId = hasLocalFilter ? list[localIndex].id : 0;
+	const auto runtimeId = localId
+		? Data::LocalChatFilterRuntimeId(localId)
+		: FilterId();
+
+	state->menu = base::make_unique_q<Ui::PopupMenu>(
+		parent,
+		st::popupMenuWithIcons);
+	AddFilterSourceActions(state->menu.get(), controller);
+	const auto addAction = Ui::Menu::CreateAddActionCallback(
+		state->menu.get());
+
+	if (localId) {
+		addAction(
+			tr::lng_filters_local_rename(tr::now),
+			[=] {
+				controller->show(Box(
+					EditLocalChatFilterNameBox,
+					controller,
+					localId));
+			},
+			&st::menuIconEdit);
+		Window::MenuAddMarkAsReadChatListAction(
+			controller,
+			[=] {
+				return session->data().localChatFilters().chatsList(
+					runtimeId);
+			},
+			addAction);
+		addAction({
+			.text = tr::lng_filters_local_delete(tr::now),
+			.handler = [=] {
+				auto callback = [=](Fn<void()> &&close) {
+					if (controller->activeLocalChatFilterCurrent() == runtimeId) {
+						controller->setActiveLocalChatFilter(0);
+					}
+					session->data().localChatFilters().remove(localId);
+					close();
+				};
+				controller->show(
+					Ui::MakeConfirmBox({
+						tr::lng_filters_local_delete_sure(),
+						std::move(callback)
+					}),
+					Ui::LayerOption::CloseOther);
+			},
+			.icon = &st::menuIconDeleteAttention,
+			.isAttention = true,
+		});
+	} else {
+		Window::MenuAddMarkAsReadChatListAction(
+			controller,
+			[=] {
+				return session->data().localChatFilters().chatsList(
+					Data::LocalChatFilterAllRuntimeId());
+			},
+			addAction);
+	}
+	addAction(
+		tr::lng_filters_local_create(tr::now),
+		[=] {
+			controller->show(Box(
+				EditLocalChatFilterNameBox,
+				controller,
+				0));
+		},
+		&st::menuIconAddToFolder);
+
+	state->menu->popup(QCursor::pos());
+}
 
 void ShowMenu(
 		not_null<Ui::RpWidget*> parent,
 		not_null<Window::SessionController*> controller,
 		not_null<State*> state,
 		int index) {
+	if (controller->localChatFiltersShownCurrent()) {
+		ShowLocalMenu(parent, controller, state, index);
+		return;
+	}
 	const auto session = &controller->session();
 
 	auto id = FilterId(0);
@@ -77,6 +241,7 @@ void ShowMenu(
 		st::popupMenuWithIcons);
 	const auto addAction = Ui::Menu::CreateAddActionCallback(
 		state->menu.get());
+	AddFilterSourceActions(state->menu.get(), controller);
 
 	if (id) {
 		addAction(
@@ -230,13 +395,35 @@ not_null<Ui::RpWidget*> AddChatFiltersTabsStrip(
 				? st::dialogsSearchTabs
 				: st::chatsFiltersTabs));
 	const auto state = wrap->lifetime().make_state<State>();
+	const auto localShown = [=] {
+		return trackActiveFilterAndUnreadAndReorder
+			&& controller->localChatFiltersShownCurrent();
+	};
+	const auto filterIdByIndex = [=](int index) {
+		if (localShown()) {
+			const auto &list = session->data().localChatFilters().list();
+			Assert(index >= 0 && index <= int(list.size()));
+			return index
+				? Data::LocalChatFilterRuntimeId(list[index - 1].id)
+				: FilterId();
+		}
+		const auto &list = session->data().chatsFilters().list();
+		Assert(index >= 0 && index < int(list.size()));
+		return list[index].id();
+	};
 	const auto reassignUnreadValue = [=] {
 		state->reorderLifetime.destroy();
-		const auto &list = session->data().chatsFilters().list();
+		const auto count = localShown()
+			? int(session->data().localChatFilters().list().size()) + 1
+			: int(session->data().chatsFilters().list().size());
 		auto includeMuted = Data::IncludeMutedCounterFoldersValue();
-		for (auto i = 0; i < list.size(); i++) {
+		for (auto i = 0; i < count; i++) {
+			const auto filterId = filterIdByIndex(i);
+			const auto unreadFilterId = localShown()
+				? Data::LocalChatFilterListId(filterId)
+				: filterId;
 			rpl::combine(
-				Data::UnreadStateValue(session, list[i].id()),
+				Data::UnreadStateValue(session, unreadFilterId),
 				rpl::duplicate(includeMuted)
 			) | rpl::on_next([=](
 					const Dialogs::UnreadState &state,
@@ -259,6 +446,15 @@ not_null<Ui::RpWidget*> AddChatFiltersTabsStrip(
 				int oldPosition,
 				int newPosition) {
 			if (newPosition == oldPosition) {
+				return;
+			}
+			if (localShown()) {
+				if (!oldPosition || !newPosition) {
+					return;
+				}
+				session->data().localChatFilters().reorder(
+					oldPosition - 1,
+					newPosition - 1);
 				return;
 			}
 
@@ -312,20 +508,16 @@ not_null<Ui::RpWidget*> AddChatFiltersTabsStrip(
 						? slider->lookupSectionLeft(i + 1)
 						: slider->width();
 					if (x >= left && x < right) {
-						const auto &list
-							= session->data().chatsFilters().list();
-						return (i < list.size())
-							? list[i].id()
-							: FilterId();
+						return filterIdByIndex(i);
 					}
 				}
 				return std::nullopt;
 			},
 			[=] { return state->lastFilterId.value_or(FilterId()); },
 			[=](FilterId id) {
-				const auto &list = session->data().chatsFilters().list();
-				for (auto i = 0; i < list.size(); i++) {
-					if (list[i].id() == id) {
+				const auto count = slider->sectionsCount();
+				for (auto i = 0; i < count; i++) {
+					if (filterIdByIndex(i) == id) {
 						slider->selectSection(i);
 						return;
 					}
@@ -363,22 +555,20 @@ not_null<Ui::RpWidget*> AddChatFiltersTabsStrip(
 		}
 	};
 
-	const auto applyFilter = [=](const Data::ChatFilter &filter) {
+	const auto applyFilterId = [=](FilterId id) {
 		if (slider->reordering()) {
 			return;
 		}
-		choose(filter.id());
-	};
-
-	const auto filterByIndex = [=](int index) -> const Data::ChatFilter& {
-		const auto &list = session->data().chatsFilters().list();
-		Assert(index >= 0 && index < list.size());
-		return list[index];
+		choose(id);
 	};
 
 	const auto rebuild = [=] {
+		const auto local = localShown();
 		const auto &list = session->data().chatsFilters().list();
-		if ((list.size() <= 1 && !slider->width()) || state->ignoreRefresh) {
+		const auto &localList = session->data().localChatFilters().list();
+		const auto count = local ? int(localList.size()) + 1 : int(list.size());
+		if ((!local && count <= 1 && !slider->width())
+			|| state->ignoreRefresh) {
 			return;
 		}
 		const auto context = Core::TextContext({ .session = session });
@@ -386,8 +576,15 @@ not_null<Ui::RpWidget*> AddChatFiltersTabsStrip(
 			return On(PowerSaving::kEmojiChat)
 				|| controller->isGifPausedAtLeastFor(pauseLevel);
 		};
-		const auto sectionsChanged = slider->setSectionsAndCheckChanged(
-			ranges::views::all(
+		auto sections = std::vector<TextWithEntities>();
+		sections.reserve(count);
+		if (local) {
+			sections.push_back({ tr::lng_filters_all_short(tr::now) });
+			for (const auto &filter : localList) {
+				sections.push_back(TextWithEntities{ filter.title });
+			}
+		} else {
+			sections = ranges::views::all(
 				list
 			) | ranges::views::transform([](const Data::ChatFilter &filter) {
 				auto title = filter.title();
@@ -396,78 +593,111 @@ not_null<Ui::RpWidget*> AddChatFiltersTabsStrip(
 					: title.isStatic
 					? Data::ForceCustomEmojiStatic(title.text)
 					: title.text;
-			}) | ranges::to_vector, context, paused);
-		if (!sectionsChanged) {
+			}) | ranges::to_vector;
+		}
+		const auto sectionsChanged = slider->setSectionsAndCheckChanged(
+			std::move(sections),
+			context,
+			paused);
+		const auto sourceChanged = (state->lastLocalShown != local);
+		state->lastLocalShown = local;
+		if (!sectionsChanged && !sourceChanged) {
 			return;
 		}
 		state->rebuildLifetime.destroy();
 		slider->fitWidthToSections();
 		{
-			const auto reorderAll = session->user()->isPremium();
-			const auto maxLimit = (reorderAll ? 1 : 0)
-				+ Data::PremiumLimits(session).dialogFiltersCurrent();
-			const auto premiumFrom = (reorderAll ? 0 : 1) + maxLimit;
-			slider->setLockedFrom((premiumFrom >= list.size())
-				? 0
-				: premiumFrom);
-			slider->lockedClicked() | rpl::on_next([=] {
-				controller->show(Box(FiltersLimitBox, session, std::nullopt));
-			}, state->rebuildLifetime);
+			const auto reorderAll = local || session->user()->isPremium();
+			const auto maxLimit = local
+				? count
+				: (reorderAll ? 1 : 0)
+					+ Data::PremiumLimits(session).dialogFiltersCurrent();
+			const auto premiumFrom = local
+				? count
+				: (reorderAll ? 0 : 1) + maxLimit;
+			slider->setLockedFrom((premiumFrom >= count) ? 0 : premiumFrom);
+			if (!local) {
+				slider->lockedClicked() | rpl::on_next([=] {
+					controller->show(Box(
+						FiltersLimitBox,
+						session,
+						std::nullopt));
+				}, state->rebuildLifetime);
+			}
 			if (state->reorder) {
 				state->reorder->cancel();
 				state->reorder->clearPinnedIntervals();
-				if (!reorderAll) {
+				if (local || !reorderAll) {
 					state->reorder->addPinnedInterval(0, 1);
 				}
-				state->reorder->addPinnedInterval(
-					premiumFrom,
-					std::max(1, int(list.size()) - maxLimit));
+				if (!local) {
+					state->reorder->addPinnedInterval(
+						premiumFrom,
+						std::max(1, int(list.size()) - maxLimit));
+				}
 			}
 		}
 		if (trackActiveFilterAndUnreadAndReorder) {
 			reassignUnreadValue();
 		}
 		[&] {
-			const auto lookingId = state->lastFilterId.value_or(
-				trackActiveFilterAndUnreadAndReorder
-					? controller->activeChatsFilterCurrent()
-					: list[0].id());
-			for (auto i = 0; i < list.size(); i++) {
-				const auto &filter = list[i];
-				if (filter.id() == lookingId) {
+			const auto currentId = trackActiveFilterAndUnreadAndReorder
+				? (local
+					? controller->activeLocalChatFilterCurrent()
+					: controller->activeChatsFilterCurrent())
+				: filterIdByIndex(0);
+			const auto lastFitsSource = state->lastFilterId
+				&& (Data::IsLocalChatFilterRuntimeId(*state->lastFilterId)
+					== local);
+			const auto lookingId = lastFitsSource
+				? *state->lastFilterId
+				: currentId;
+			for (auto i = 0; i < count; i++) {
+				const auto id = filterIdByIndex(i);
+				if (id == lookingId) {
 					const auto wasLast = !!state->lastFilterId;
-					state->lastFilterId = filter.id();
+					state->lastFilterId = id;
 					slider->setActiveSectionFast(i);
 					scrollToIndex(
 						i,
 						wasLast ? anim::type::normal : anim::type::instant);
 					if (wasLast || !trackActiveFilterAndUnreadAndReorder) {
-						applyFilter(filter);
+						applyFilterId(id);
 					}
 					return;
 				}
 			}
-			if (list.size()) {
+			if (count) {
 				const auto index = 0;
-				const auto &filter = filterByIndex(index);
-				state->lastFilterId = filter.id();
+				const auto id = filterIdByIndex(index);
+				state->lastFilterId = id;
 				slider->setActiveSectionFast(index);
 				scrollToIndex(index, anim::type::instant);
-				applyFilter(filter);
+				applyFilterId(id);
 			}
 		}();
 		if (trackActiveFilterAndUnreadAndReorder) {
-			controller->activeChatsFilter(
-			) | rpl::on_next([=](FilterId id) {
-				const auto &list = session->data().chatsFilters().list();
-				for (auto i = 0; i < list.size(); ++i) {
-					if (list[i].id() == id) {
+			const auto activateId = [=](FilterId id) {
+				for (auto i = 0; i < slider->sectionsCount(); ++i) {
+					if (filterIdByIndex(i) == id) {
 						slider->setActiveSection(i);
 						scrollToIndex(i, anim::type::normal);
 						break;
 					}
 				}
 				state->reorder->finishReordering();
+			};
+			controller->activeChatsFilter(
+			) | rpl::on_next([=](FilterId id) {
+				if (!localShown()) {
+					activateId(id);
+				}
+			}, state->rebuildLifetime);
+			controller->activeLocalChatFilter(
+			) | rpl::on_next([=](FilterId id) {
+				if (localShown()) {
+					activateId(id);
+				}
 			}, state->rebuildLifetime);
 		}
 		rpl::single(-1) | rpl::then(
@@ -477,12 +707,12 @@ not_null<Ui::RpWidget*> AddChatFiltersTabsStrip(
 			if (slider->reordering()) {
 				return;
 			}
-			const auto &filter = filterByIndex(index);
+			const auto id = filterIdByIndex(index);
 			if (was != index) {
-				state->lastFilterId = filter.id();
+				state->lastFilterId = id;
 				scrollToIndex(index, anim::type::normal);
 			}
-			applyFilter(filter);
+			applyFilterId(id);
 		}, state->rebuildLifetime);
 		slider->contextMenuRequested() | rpl::on_next([=](int index) {
 			if (trackActiveFilterAndUnreadAndReorder) {
@@ -496,14 +726,16 @@ not_null<Ui::RpWidget*> AddChatFiltersTabsStrip(
 					[=](int i) { slider->setActiveSection(i); });
 			}
 		}, state->rebuildLifetime);
-		wrap->toggle((list.size() > 1), anim::type::instant);
+		wrap->toggle(local || (count > 1), anim::type::instant);
 
 		if (state->reorder) {
 			state->reorder->start();
 		}
 	};
-	rpl::combine(
+	rpl::merge(
 		session->data().chatsFilters().changed(),
+		session->data().localChatFilters().changed(),
+		controller->localChatFiltersShown() | rpl::to_empty,
 		Data::AmPremiumValue(session) | rpl::to_empty
 	) | rpl::on_next(rebuild, wrap->lifetime());
 	rebuild();
@@ -515,7 +747,7 @@ not_null<Ui::RpWidget*> AddChatFiltersTabsStrip(
 		}
 		for (const auto &filter : session->data().chatsFilters().list()) {
 			if (filter.id() == id) {
-				applyFilter(filter);
+				applyFilterId(id);
 				return;
 			}
 		}

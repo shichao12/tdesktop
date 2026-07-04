@@ -50,6 +50,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "data/data_peer_values.h"
 #include "data/data_histories.h"
 #include "data/data_chat_filters.h"
+#include "data/data_local_chat_filters.h"
 #include "data/data_changes.h"
 #include "data/data_message_reactions.h"
 #include "data/data_saved_messages.h"
@@ -239,6 +240,14 @@ constexpr auto kPreviewPostsLimit = 3;
 		return tr::lng_search_filter_channel(tr::now);
 	}
 	Unexpected("Chat type filter in search results.");
+}
+
+[[nodiscard]] FilterId ResolveShownFilterId(
+		not_null<Window::SessionController*> controller,
+		FilterId filterId) {
+	return controller->localChatFiltersShownCurrent()
+		? Data::LocalChatFilterListId(filterId)
+		: filterId;
 }
 
 } // namespace
@@ -569,7 +578,33 @@ InnerWidget::InnerWidget(
 
 	_controller->activeChatsFilter(
 	) | rpl::on_next([=](FilterId filterId) {
-		switchToFilter(filterId);
+		if (!_controller->localChatFiltersShownCurrent()) {
+			switchToFilter(filterId);
+		}
+	}, lifetime());
+
+	_controller->activeLocalChatFilter(
+	) | rpl::on_next([=](FilterId filterId) {
+		if (_controller->localChatFiltersShownCurrent()) {
+			switchToFilter(filterId);
+		}
+	}, lifetime());
+
+	_controller->localChatFiltersShown(
+	) | rpl::on_next([=](bool shown) {
+		switchToFilter(shown
+			? _controller->activeLocalChatFilterCurrent()
+			: _controller->activeChatsFilterCurrent());
+	}, lifetime());
+
+	session().data().localChatFilters().changed(
+	) | rpl::on_next([=] {
+		const auto id = _controller->activeLocalChatFilterCurrent();
+		if (id && !session().data().localChatFilters().lookupRuntime(id)) {
+			_controller->setActiveLocalChatFilter(0);
+		} else if (_controller->localChatFiltersShownCurrent()) {
+			switchToFilter(id);
+		}
 	}, lifetime());
 
 	_controller->window().widget()->globalForceClicks(
@@ -787,9 +822,15 @@ void InnerWidget::changeOpenedForum(Data::Forum *forum) {
 	if (forum) {
 		saveChatsFilterScrollState(_filterId);
 	}
-	_filterId = forum
-		? 0
-		: _controller->activeChatsFilterCurrent();
+	if (forum) {
+		_filterId = 0;
+	} else if (_controller->localChatFiltersShownCurrent()) {
+		_filterId = ResolveShownFilterId(
+			_controller,
+			_controller->activeLocalChatFilterCurrent());
+	} else {
+		_filterId = _controller->activeChatsFilterCurrent();
+	}
 	if (_openedForum) {
 		// If we close it inside forum destruction we should not schedule.
 		session().data().forumIcons().scheduleUserpicsReset(_openedForum);
@@ -2359,13 +2400,16 @@ bool InnerWidget::addQuickActionRipple(
 
 const std::vector<Key> &InnerWidget::pinnedChatsOrder() const {
 	const auto owner = &session().data();
-	return _savedSublists
-		? owner->pinnedChatsOrder(_savedSublists)
-		: _openedForum
-		? owner->pinnedChatsOrder(_openedForum)
-		: _filterId
-		? owner->pinnedChatsOrder(_filterId)
-		: owner->pinnedChatsOrder(_openedFolder);
+	if (_savedSublists) {
+		return owner->pinnedChatsOrder(_savedSublists);
+	} else if (_openedForum) {
+		return owner->pinnedChatsOrder(_openedForum);
+	} else if (Data::IsLocalChatFilterListId(_filterId)) {
+		return owner->pinnedChatsOrder(_filterId);
+	} else if (_filterId) {
+		return owner->pinnedChatsOrder(_filterId);
+	}
+	return owner->pinnedChatsOrder(_openedFolder);
 }
 
 void InnerWidget::checkReorderPinnedStart(QPoint localPosition) {
@@ -2441,6 +2485,8 @@ void InnerWidget::savePinnedOrder() {
 		session().api().savePinnedOrder(&session().data().savedMessages());
 	} else if (_openedForum) {
 		session().api().savePinnedOrder(_openedForum);
+	} else if (Data::IsLocalChatFilterListId(_filterId)) {
+		session().data().localChatFilters().savePinnedOrder(_filterId);
 	} else if (_filterId) {
 		Api::SaveNewFilterPinned(&session(), _filterId);
 	} else {
@@ -3427,13 +3473,20 @@ void InnerWidget::updateSelectedRow(Key key) {
 }
 
 void InnerWidget::refreshShownList() {
-	const auto list = _savedSublists
-		? _savedSublists->chatsList()->indexed()
-		: _openedForum
-		? _openedForum->topicsList()->indexed()
-		: _filterId
-		? session().data().chatsFilters().chatsList(_filterId)->indexed()
-		: session().data().chatsList(_openedFolder)->indexed();
+	const auto list = [&] {
+		if (_savedSublists) {
+			return _savedSublists->chatsList()->indexed();
+		} else if (_openedForum) {
+			return _openedForum->topicsList()->indexed();
+		} else if (Data::IsLocalChatFilterListId(_filterId)) {
+			return session().data().localChatFilters().chatsList(
+				_filterId)->indexed();
+		} else if (_filterId) {
+			return session().data().chatsFilters().chatsList(
+				_filterId)->indexed();
+		}
+		return session().data().chatsList(_openedFolder)->indexed();
+	}();
 	if (_shownList != list) {
 		_shownList->unfreeze();
 		_shownList = list;
@@ -4519,7 +4572,8 @@ void InnerWidget::refreshEmpty() {
 			: EmptyState::Loading)
 		: (!_filterId && data->contactsLoaded().current())
 		? EmptyState::NoContacts
-		: (_filterId > 0) && data->chatsList()->loaded()
+		: ((_filterId > 0) || Data::IsLocalChatFilterListId(_filterId))
+			&& data->chatsList()->loaded()
 		? EmptyState::EmptyFolder
 		: EmptyState::Loading;
 	if (state == EmptyState::None) {
@@ -5129,13 +5183,21 @@ void InnerWidget::switchToFilter(FilterId filterId) {
 	if (_controller->windowId().type != Window::SeparateType::Primary) {
 		return;
 	}
+	const auto local = _controller->localChatFiltersShownCurrent();
+	if (local) {
+		filterId = Data::LocalChatFilterListId(filterId);
+	}
 	const auto &list = session().data().chatsFilters().list();
-	const auto filterIt = filterId
+	const auto filterIt = (!local && filterId)
 		? ranges::find(list, filterId, &Data::ChatFilter::id)
 		: end(list);
-	const auto found = (filterIt != end(list));
+	const auto found = local
+		? ((filterId == Data::LocalChatFilterAllRuntimeId())
+			|| (session().data().localChatFilters().lookupRuntime(filterId)
+				!= nullptr))
+		: (filterIt != end(list));
 	if (!found) {
-		filterId = 0;
+		filterId = local ? Data::LocalChatFilterAllRuntimeId() : 0;
 	}
 	if (_filterId == filterId) {
 		jumpToTop();
@@ -5156,6 +5218,7 @@ void InnerWidget::switchToFilter(FilterId filterId) {
 	{
 		const auto skip = found
 			// Don't save a scroll state for very flexible chat filters.
+			&& !local
 			&& (filterIt->flags() & (Data::ChatFilter::Flag::NoRead));
 		if (!skip) {
 			restoreChatsFilterScrollState(filterId);
@@ -5786,7 +5849,9 @@ void InnerWidget::setupShortcuts() {
 			ranges::views::ints(0, ranges::unreachable));
 		for (const auto &[command, index] : pinned) {
 			request->check(command) && request->handle([=, index = index] {
-				const auto list = (_filterId
+				const auto list = (Data::IsLocalChatFilterListId(_filterId)
+					? session().data().localChatFilters().chatsList(_filterId)
+					: _filterId
 					? session().data().chatsFilters().chatsList(_filterId)
 					: session().data().chatsList()
 				)->indexed();

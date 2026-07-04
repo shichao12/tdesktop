@@ -61,6 +61,7 @@ class EmojiStatuses;
 class ForumIcons;
 class AiComposeTones;
 class ChatFilters;
+class LocalChatFilters;
 class CloudThemes;
 class Streaming;
 class MediaRotation;
@@ -191,6 +192,9 @@ public:
 	}
 	[[nodiscard]] ChatFilters &chatsFilters() const {
 		return *_chatsFilters;
+	}
+	[[nodiscard]] LocalChatFilters &localChatFilters() const {
+		return *_localChatFilters;
 	}
 	[[nodiscard]] ShortcutMessages &shortcutMessages() const {
 		return *_shortcutMessages;
@@ -1382,6 +1386,7 @@ private:
 	Groups _groups;
 	const std::unique_ptr<AiComposeTones> _aiComposeTones;
 	const std::unique_ptr<ChatFilters> _chatsFilters;
+	const std::unique_ptr<LocalChatFilters> _localChatFilters;
 	const std::unique_ptr<CloudThemes> _cloudThemes;
 	const std::unique_ptr<SendActionManager> _sendActionManager;
 	const std::unique_ptr<Streaming> _streaming;

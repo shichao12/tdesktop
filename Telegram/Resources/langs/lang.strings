@@ -7472,6 +7472,15 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "lng_filters_remove_sure" = "This will remove the folder, your chats will not be deleted.";
 "lng_filters_remove_yes" = "Remove";
 "lng_filters_menu_add" = "Add to folder";
+"lng_filters_source_official" = "官方分组";
+"lng_filters_source_local" = "本地分组";
+"lng_filters_local_menu_add" = "添加到本地分组";
+"lng_filters_local_create" = "新建本地分组";
+"lng_filters_local_rename" = "重命名本地分组";
+"lng_filters_local_delete" = "删除本地分组";
+"lng_filters_local_delete_sure" = "这会删除本地分组，不会删除其中的聊天。";
+"lng_filters_local_default" = "本地分组";
+"lng_filters_local_name" = "本地分组名称";
 "lng_filters_toast_add" = "{chat} added to {folder} folder";
 "lng_filters_toast_remove" = "{chat} removed from {folder} folder";
 "lng_filters_shareable_status" = "shareable folder";

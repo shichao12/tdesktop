@@ -2,7 +2,7 @@ import os, sys, pprint, re, json, pathlib, hashlib, subprocess, glob, tempfile
 
 executePath = os.getcwd()
 sys.dont_write_bytecode = True
-scriptPath = os.path.dirname(os.path.realpath(__file__))
+scriptPath = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(scriptPath + '/..')
 import qt_version
 
@@ -53,9 +53,9 @@ libsLoc = 'Libraries' if not win64 else (os.path.join('Libraries', 'win64'))
 keysLoc = 'cache_keys'
 
 rootDir = os.getcwd()
-libsDir = os.path.realpath(os.path.join(rootDir, libsLoc))
-thirdPartyDir = os.path.realpath(os.path.join(rootDir, 'ThirdParty'))
-usedPrefix = os.path.realpath(os.path.join(libsDir, 'local'))
+libsDir = os.path.abspath(os.path.join(rootDir, libsLoc))
+thirdPartyDir = os.path.abspath(os.path.join(rootDir, 'ThirdParty'))
+usedPrefix = os.path.abspath(os.path.join(libsDir, 'local'))
 
 optionsList = [
     'qt6',
@@ -750,7 +750,7 @@ win32:
     SET "DAV1D_ASM_DISABLE=-Denable_asm=false"
 win64:
     SET "TARGET=x86_64"
-    SET "DAV1D_ASM_DISABLE="
+    SET "DAV1D_ASM_DISABLE=-Denable_asm=false"
 winarm:
     SET "TARGET=aarch64"
     SET "DAV1D_ASM_DISABLE="
@@ -776,7 +776,7 @@ depends:python/Scripts/activate.bat
     meson compile -C builddir-debug
     meson install -C builddir-debug
 release:
-    meson setup --cross-file %FILE% --prefix %LIBS_DIR%/local --default-library=static --buildtype=release -Denable_tools=false -Denable_tests=false -Db_vscrt=mt builddir-release
+    meson setup --cross-file %FILE% --prefix %LIBS_DIR%/local --default-library=static --buildtype=release -Denable_tools=false -Denable_tests=false %DAV1D_ASM_DISABLE% -Db_vscrt=mt builddir-release
     meson compile -C builddir-release
     meson install -C builddir-release
 win:
@@ -818,6 +818,7 @@ winarm:
     SET "TARGET=aarch64"
     SET "PATH=%LIBS_DIR%\\gas-preprocessor;%PATH%"
 win:
+    powershell -NoProfile -Command "(Get-Content -Raw -LiteralPath 'meson.build').Replace('join_paths(meson.current_source_dir(), ''codec'', ''common'', ''x86'', '''')', 'join_paths(''..'', ''codec'', ''common'', ''x86'', '''')') | Set-Content -LiteralPath 'meson.build' -NoNewline"
     set FILE=cross-file.txt
     echo [binaries] > %FILE%
     echo c = 'cl' >> %FILE%
@@ -1175,7 +1176,7 @@ stage('regex', """
 """)
 
 stage('ffmpeg', """
-    git clone -b n6.1.1 https://github.com/FFmpeg/FFmpeg.git ffmpeg
+    git clone --depth 1 -b n6.1.1 https://github.com/FFmpeg/FFmpeg.git ffmpeg
     cd ffmpeg
 win:
 depends:patches/ffmpeg.patch
@@ -1519,9 +1520,9 @@ release:
 """)
 
     stage('qt_' + qt, """
-    git clone -b v$QT-lts-lgpl https://github.com/qt/qt5.git qt_$QT
+    git clone --depth 1 -b v$QT-lts-lgpl https://github.com/qt/qt5.git qt_$QT
     cd qt_$QT
-    git submodule update --init --recursive --progress qtbase qtimageformats qtsvg
+    git submodule update --init --recursive --depth 1 --progress qtbase qtimageformats qtsvg
 depends:patches/qtbase_""" + qt + """/*.patch
 win:
     cd qtbase
@@ -1815,7 +1816,7 @@ mac:
 
 stage('protobuf', """
 win:
-    git clone --recursive -b v21.9 https://github.com/protocolbuffers/protobuf
+    git clone --depth 1 --single-branch --recursive --shallow-submodules -b v21.9 https://github.com/protocolbuffers/protobuf
     cd protobuf
     git clone https://github.com/abseil/abseil-cpp third_party/abseil-cpp
     cd third_party/abseil-cpp

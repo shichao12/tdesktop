@@ -2,6 +2,8 @@
 Debug/
 Release/
 /ThirdParty/
+/Libraries/
+/tgclient_build/
 /Telegram/build/target
 /Telegram/tests/
 /Telegram/gyp/tests/*.test
@@ -68,6 +70,9 @@ settings.local.json
 
 # AI work folder (session-specific, not for version control)
 .ai
+
+# 本地构建和辅助资料目录，不纳入版本控制
+/docs/superpowers/
 
 # Generated changelog page (built by CI, deployed to GitHub Pages)
 /docs/changelog/

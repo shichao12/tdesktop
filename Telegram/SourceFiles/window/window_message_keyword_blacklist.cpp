@@ -30,6 +30,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "styles/style_layers.h"
 #include "styles/style_menu_icons.h"
 #include "styles/style_settings.h"
+#include "styles/style_window.h"
 #include "styles/style_widgets.h"
 
 #include <QtGui/QCursor>
@@ -41,12 +42,14 @@ constexpr auto kMaxMessageBlacklistEntryLength = 128;
 
 enum class BlacklistEntryType {
 	Keyword,
+	TextLink,
 	Link,
 };
 
 enum class BlacklistEntryFilter {
 	All,
 	Keyword,
+	TextLink,
 	Link,
 };
 
@@ -56,6 +59,8 @@ enum class BlacklistEntryFilter {
 		return u"all"_q;
 	case BlacklistEntryFilter::Keyword:
 		return u"keyword"_q;
+	case BlacklistEntryFilter::TextLink:
+		return u"text_link"_q;
 	case BlacklistEntryFilter::Link:
 		return u"link"_q;
 	}
@@ -65,6 +70,8 @@ enum class BlacklistEntryFilter {
 [[nodiscard]] BlacklistEntryFilter EntryFilterFromId(const QString &id) {
 	if (id == EntryFilterId(BlacklistEntryFilter::Keyword)) {
 		return BlacklistEntryFilter::Keyword;
+	} else if (id == EntryFilterId(BlacklistEntryFilter::TextLink)) {
+		return BlacklistEntryFilter::TextLink;
 	} else if (id == EntryFilterId(BlacklistEntryFilter::Link)) {
 		return BlacklistEntryFilter::Link;
 	}
@@ -78,6 +85,9 @@ enum class BlacklistEntryFilter {
 	auto &blacklist = controller->session().data().messageKeywordBlacklist();
 	if (type == BlacklistEntryType::Link) {
 		const auto &links = blacklist.commonLinks();
+		return { begin(links), end(links) };
+	} else if (type == BlacklistEntryType::TextLink) {
+		const auto &links = blacklist.commonTextLinks();
 		return { begin(links), end(links) };
 	}
 	const auto &entries = peer
@@ -95,6 +105,9 @@ void SaveEntries(
 	if (type == BlacklistEntryType::Link) {
 		blacklist.setCommonLinks(std::move(entries));
 		return;
+	} else if (type == BlacklistEntryType::TextLink) {
+		blacklist.setCommonTextLinks(std::move(entries));
+		return;
 	}
 	if (peer) {
 		blacklist.setChannelKeywords(peer->id, std::move(entries));
@@ -106,24 +119,32 @@ void SaveEntries(
 [[nodiscard]] rpl::producer<QString> AddEntryText(BlacklistEntryType type) {
 	return (type == BlacklistEntryType::Link)
 		? tr::lng_message_blacklist_add_link()
+		: (type == BlacklistEntryType::TextLink)
+		? tr::lng_message_blacklist_add_text_link()
 		: tr::lng_message_blacklist_add_keyword();
 }
 
 [[nodiscard]] rpl::producer<QString> EntryTypeText(BlacklistEntryType type) {
 	return (type == BlacklistEntryType::Link)
 		? tr::lng_message_blacklist_type_link()
+		: (type == BlacklistEntryType::TextLink)
+		? tr::lng_message_blacklist_type_text_link()
 		: tr::lng_message_blacklist_type_text();
 }
 
 [[nodiscard]] rpl::producer<QString> DeleteEntryText(BlacklistEntryType type) {
 	return (type == BlacklistEntryType::Link)
 		? tr::lng_message_blacklist_delete_link()
+		: (type == BlacklistEntryType::TextLink)
+		? tr::lng_message_blacklist_delete_text_link()
 		: tr::lng_message_blacklist_delete_keyword();
 }
 
 [[nodiscard]] rpl::producer<QString> NoEntriesText(BlacklistEntryType type) {
 	return (type == BlacklistEntryType::Link)
 		? tr::lng_message_blacklist_no_links()
+		: (type == BlacklistEntryType::TextLink)
+		? tr::lng_message_blacklist_no_text_links()
 		: tr::lng_message_blacklist_no_keywords();
 }
 
@@ -131,6 +152,8 @@ void SaveEntries(
 		BlacklistEntryType type) {
 	return (type == BlacklistEntryType::Link)
 		? tr::lng_message_blacklist_link_placeholder()
+		: (type == BlacklistEntryType::TextLink)
+		? tr::lng_message_blacklist_text_link_placeholder()
 		: tr::lng_message_blacklist_keyword_placeholder();
 }
 
@@ -201,6 +224,10 @@ void ShowAddEntryBox(
 				(*menu)->addAction(
 					tr::lng_message_blacklist_type_text(tr::now),
 					[=] { *type = BlacklistEntryType::Keyword; });
+				(*menu)->addAction(
+					tr::lng_message_blacklist_type_text_link(tr::now),
+					[=] { *type = BlacklistEntryType::TextLink; },
+					&st::menuIconLink);
 				(*menu)->addAction(
 					tr::lng_message_blacklist_type_link(tr::now),
 					[=] { *type = BlacklistEntryType::Link; },
@@ -307,14 +334,28 @@ void FillKeywords(
 		peer,
 		(!peer && filter == BlacklistEntryFilter::Link)
 			? BlacklistEntryType::Link
+			: (!peer && filter == BlacklistEntryFilter::TextLink)
+			? BlacklistEntryType::TextLink
 			: BlacklistEntryType::Keyword);
-	if (!peer && filter != BlacklistEntryFilter::Link) {
+	if (!peer
+		&& (filter == BlacklistEntryFilter::All
+			|| filter == BlacklistEntryFilter::Keyword)) {
 		Ui::AddSubsectionTitle(
 			rows,
 			tr::lng_message_blacklist_common_keywords());
 		FillEntries(box, rows, controller, peer, BlacklistEntryType::Keyword);
 	}
-	if (!peer && filter != BlacklistEntryFilter::Keyword) {
+	if (!peer
+		&& (filter == BlacklistEntryFilter::All
+			|| filter == BlacklistEntryFilter::TextLink)) {
+		Ui::AddSubsectionTitle(
+			rows,
+			tr::lng_message_blacklist_common_text_links());
+		FillEntries(box, rows, controller, peer, BlacklistEntryType::TextLink);
+	}
+	if (!peer
+		&& (filter == BlacklistEntryFilter::All
+			|| filter == BlacklistEntryFilter::Link)) {
 		Ui::AddSubsectionTitle(
 			rows,
 			tr::lng_message_blacklist_common_links());
@@ -398,7 +439,7 @@ void ShowMessageKeywordBlacklistKeywordsBox(
 			: tr::lng_message_blacklist_manage_common());
 		box->setMaxHeight(st::boxMaxListHeight);
 		if (!peer) {
-			box->setWidth(st::boxWideWidth);
+			box->setWidth(st::messageBlacklistCommonBoxWidth);
 			box->setMinHeight(st::boxMaxListHeight);
 		}
 		box->addButton(
@@ -426,6 +467,12 @@ void ShowMessageKeywordBlacklistKeywordsBox(
 						{
 							EntryFilterId(BlacklistEntryFilter::Keyword),
 							tr::lng_message_blacklist_type_text(
+								tr::now,
+								tr::marked),
+						},
+						{
+							EntryFilterId(BlacklistEntryFilter::TextLink),
+							tr::lng_message_blacklist_type_text_link(
 								tr::now,
 								tr::marked),
 						},

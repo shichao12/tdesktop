@@ -1127,6 +1127,52 @@ void AddBlacklistLinkAction(
 		&st::menuIconLink);
 }
 
+[[nodiscard]] QString BlacklistTextLinkFromHandler(
+		const ClickHandlerPtr &link,
+		Element *view) {
+	if (!link || !view) {
+		return QString();
+	}
+	const auto entity = link->getTextEntity();
+	if (entity.type != EntityType::CustomUrl
+		|| BlacklistLinkFromHandler(link).isEmpty()) {
+		return QString();
+	}
+	return view->textLinkDisplayText(link);
+}
+
+void AddBlacklistTextLinkAction(
+		not_null<Ui::PopupMenu*> menu,
+		const ClickHandlerPtr &link,
+		Element *view,
+		not_null<Window::SessionController*> controller) {
+	const auto text = BlacklistTextLinkFromHandler(link, view);
+	if (text.isEmpty()) {
+		return;
+	}
+	auto &data = controller->session().data();
+	auto &blacklist = data.messageKeywordBlacklist();
+	const auto listed = BlacklistTextLinkInList(
+		blacklist.commonTextLinks(),
+		text);
+	menu->addAction(
+		listed
+			? tr::lng_message_blacklist_remove_text_link_context(tr::now)
+			: tr::lng_message_blacklist_add_text_link_context(tr::now),
+		[=] {
+			auto &data = controller->session().data();
+			auto &blacklist = data.messageKeywordBlacklist();
+			auto texts = blacklist.commonTextLinks();
+			if (listed) {
+				texts = BlacklistTextLinksWithout(std::move(texts), text);
+			} else {
+				texts.push_back(text);
+			}
+			blacklist.setCommonTextLinks(std::move(texts));
+		},
+		&st::menuIconBlock);
+}
+
 void EditTagBox(
 		not_null<Ui::GenericBox*> box,
 		not_null<Window::SessionController*> controller,
@@ -1601,6 +1647,7 @@ void FillContextMenuItems(
 
 	AddCopyLinkAction(result, link);
 	AddBlacklistLinkAction(result, link, list->controller());
+	AddBlacklistTextLinkAction(result, link, view, list->controller());
 	AddMessageActions(result, request, list);
 
 	const auto wasAmount = result->actions().size();

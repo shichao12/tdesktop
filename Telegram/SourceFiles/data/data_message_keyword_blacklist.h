@@ -27,10 +27,12 @@ public:
 
 	[[nodiscard]] const std::vector<QString> &commonKeywords() const;
 	[[nodiscard]] const std::vector<QString> &commonLinks() const;
+	[[nodiscard]] const std::vector<QString> &commonTextLinks() const;
 	[[nodiscard]] const std::vector<QString> &channelKeywords(
 		PeerId peerId) const;
 	void setCommonKeywords(std::vector<QString> keywords);
 	void setCommonLinks(std::vector<QString> links);
+	void setCommonTextLinks(std::vector<QString> links);
 	void setChannelKeywords(PeerId peerId, std::vector<QString> keywords);
 
 	[[nodiscard]] bool hasRules(PeerId peerId) const;
@@ -64,6 +66,8 @@ private:
 	std::vector<QString> _commonKeywordsFolded;
 	std::vector<QString> _commonLinks;
 	std::vector<QString> _commonLinksNormalized;
+	std::vector<QString> _commonTextLinks;
+	std::vector<QString> _commonTextLinksFolded;
 	ChannelKeywords _channelKeywords;
 	ChannelKeywords _channelKeywordsFolded;
 	base::flat_map<PeerId, base::flat_set<MsgId>> _matchedByPeer;

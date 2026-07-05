@@ -3553,18 +3553,21 @@ void Message::toggleRightActionButtonRipple(int index, bool pressed) {
 	const auto rightSize = rightActionSize();
 	Assert(rightSize != std::nullopt);
 	const auto buttonSize = rightActionButtonSize();
+	const auto horizontal = rightActionButtonsHorizontal();
 	auto &button = _rightAction->buttons[index];
 
 	if (pressed) {
 		if (!button.ripple) {
-			const auto size = QSize(rightSize->width(), buttonSize);
+			const auto size = QSize(buttonSize, buttonSize);
 			button.ripple = std::make_unique<Ui::RippleAnimation>(
 				st::defaultRippleAnimation,
 				Ui::RippleAnimation::RoundRectMask(size, size.width() / 2),
 				[=] { repaint(); });
 		}
 		button.ripple->add(
-			_rightAction->lastPoint - QPoint(0, index * buttonSize));
+			_rightAction->lastPoint - QPoint(
+				horizontal ? index * buttonSize : 0,
+				horizontal ? 0 : index * buttonSize));
 	} else if (button.ripple) {
 		button.ripple->lastStop();
 	}
@@ -5945,9 +5948,13 @@ std::optional<QSize> Message::rightActionSize() const {
 			? QSize(st::historyFastCloseSize, st::historyFastCloseSize * 2)
 			: QSize(st::historyFastCloseSize, st::historyFastCloseSize))
 		: displayRightActionButtons()
-		? QSize(
-			st::historyFastShareSize,
-			st::historyFastShareSize * rightActionButtonsCount())
+		? (rightActionButtonsHorizontal()
+			? QSize(
+				st::historyFastShareSize * rightActionButtonsCount(),
+				st::historyFastShareSize)
+			: QSize(
+				st::historyFastShareSize,
+				st::historyFastShareSize * rightActionButtonsCount()))
 		: (displayFastShare() || displayGoToOriginal())
 		? QSize(st::historyFastShareSize, st::historyFastShareSize)
 		: std::optional<QSize>();
@@ -6024,6 +6031,19 @@ int Message::rightActionButtonsCount() const {
 		: 1;
 }
 
+bool Message::rightActionButtonsHorizontal() const {
+	if (!displayRightActionButtons()) {
+		return false;
+	}
+	const auto count = rightActionButtonsCount();
+	if (count <= 1) {
+		return false;
+	}
+	const auto buttonSize = rightActionButtonSize();
+	const auto availableHeight = height() - marginTop() - marginBottom();
+	return (buttonSize * count) > availableHeight;
+}
+
 void Message::drawRightAction(
 		Painter &p,
 		const PaintContext &context,
@@ -6052,6 +6072,7 @@ void Message::drawRightAction(
 		const auto &stm = context.messageStyle();
 		const auto colorOverride = &stm->msgWaveformInactive->c;
 		const auto buttonSize = rightActionButtonSize();
+		const auto horizontal = rightActionButtonsHorizontal();
 		for (auto i = 0; i != int(_rightAction->buttons.size()); ++i) {
 			auto &button = _rightAction->buttons[i];
 			if (!button.ripple) {
@@ -6059,9 +6080,9 @@ void Message::drawRightAction(
 			}
 			button.ripple->paint(
 				p,
-				left,
-				top + i * buttonSize,
-				size->width(),
+				left + (horizontal ? i * buttonSize : 0),
+				top + (horizontal ? 0 : i * buttonSize),
+				buttonSize,
 				colorOverride);
 			if (button.ripple->empty()) {
 				button.ripple.reset();
@@ -6120,13 +6141,14 @@ void Message::drawRightAction(
 		}
 	} else if (!_rightAction->buttons.empty()) {
 		const auto buttonSize = rightActionButtonSize();
+		const auto horizontal = rightActionButtonsHorizontal();
 		const auto last = int(_rightAction->buttons.size()) - 1;
 		const auto save = displayFastSaveToSelf();
 		for (auto i = 0; i <= last; ++i) {
 			const auto rect = QRect(
-				left,
-				top + i * buttonSize,
-				size->width(),
+				left + (horizontal ? i * buttonSize : 0),
+				top + (horizontal ? 0 : i * buttonSize),
+				buttonSize,
 				buttonSize);
 			const auto &icon = (save && i == 0)
 				? st->historyFastSaveIcon()
@@ -6177,8 +6199,11 @@ ClickHandlerPtr Message::rightActionLink(
 		_rightAction->lastPoint = *pressPoint;
 	}
 	if (!_rightAction->buttons.empty()) {
+		const auto horizontal = rightActionButtonsHorizontal();
 		const auto index = std::clamp(
-			_rightAction->lastPoint.y() / rightActionButtonSize(),
+			(horizontal
+				? _rightAction->lastPoint.x()
+				: _rightAction->lastPoint.y()) / rightActionButtonSize(),
 			0,
 			int(_rightAction->buttons.size()) - 1);
 		return _rightAction->buttons[index].link;

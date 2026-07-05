@@ -467,6 +467,7 @@ private:
 	[[nodiscard]] bool displayGoToOriginal() const;
 	[[nodiscard]] int rightActionButtonSize() const;
 	[[nodiscard]] int rightActionButtonsCount() const;
+	[[nodiscard]] bool rightActionButtonsHorizontal() const;
 	[[nodiscard]] ClickHandlerPtr fastReplyLink() const;
 	[[nodiscard]] ClickHandlerPtr prepareRightActionLink() const;
 	void toggleRightActionButtonRipple(int index, bool pressed);

@@ -104,6 +104,10 @@ QByteArray SessionSettings::serialize() const {
 	for (const auto &link : _messageBlacklistCommonLinks) {
 		size += Serialize::stringSize(link);
 	}
+	size += sizeof(qint32);
+	for (const auto &link : _messageBlacklistCommonTextLinks) {
+		size += Serialize::stringSize(link);
+	}
 
 	auto result = QByteArray();
 	result.reserve(size);
@@ -236,6 +240,10 @@ QByteArray SessionSettings::serialize() const {
 		for (const auto &link : _messageBlacklistCommonLinks) {
 			stream << link;
 		}
+		stream << qint32(_messageBlacklistCommonTextLinks.size());
+		for (const auto &link : _messageBlacklistCommonTextLinks) {
+			stream << link;
+		}
 	}
 
 	Ensures(result.size() == size);
@@ -320,6 +328,7 @@ void SessionSettings::addFromSerialized(const QByteArray &serialized) {
 		messageBlacklistChannelKeywords;
 	std::vector<PeerId> quickForwardChannelPeerIds;
 	std::vector<QString> messageBlacklistCommonLinks;
+	std::vector<QString> messageBlacklistCommonTextLinks;
 
 	stream >> versionTag;
 	if (versionTag == kVersionTag) {
@@ -996,6 +1005,31 @@ void SessionSettings::addFromSerialized(const QByteArray &serialized) {
 			}
 		}
 	}
+	if (!stream.atEnd()) {
+		auto count = qint32(0);
+		stream >> count;
+		if (stream.status() == QDataStream::Ok) {
+			if (count < 0) {
+				LOG(("App Error: "
+					"Bad data for SessionSettings::addFromSerialized()"));
+				return;
+			}
+			messageBlacklistCommonTextLinks.reserve(count);
+			for (auto i = 0; i != count; ++i) {
+				QString link;
+				stream >> link;
+				if (stream.status() != QDataStream::Ok) {
+					LOG(("App Error: "
+						"Bad data for SessionSettings::addFromSerialized()"));
+					return;
+				}
+				if (!link.isEmpty()) {
+					messageBlacklistCommonTextLinks.push_back(
+						std::move(link));
+				}
+			}
+		}
+	}
 	if (stream.status() != QDataStream::Ok) {
 		LOG(("App Error: "
 			"Bad data for SessionSettings::addFromSerialized()"));
@@ -1069,6 +1103,8 @@ void SessionSettings::addFromSerialized(const QByteArray &serialized) {
 	_messageBlacklistCommonKeywords = std::move(
 		messageBlacklistCommonKeywords);
 	_messageBlacklistCommonLinks = std::move(messageBlacklistCommonLinks);
+	_messageBlacklistCommonTextLinks = std::move(
+		messageBlacklistCommonTextLinks);
 	_messageBlacklistChannelKeywords = std::move(
 		messageBlacklistChannelKeywords);
 	_quickForwardChannelPeerIds = std::move(quickForwardChannelPeerIds);

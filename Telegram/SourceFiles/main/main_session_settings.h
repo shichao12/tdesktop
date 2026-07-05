@@ -175,6 +175,13 @@ public:
 	void setMessageBlacklistCommonLinks(std::vector<QString> links) {
 		_messageBlacklistCommonLinks = std::move(links);
 	}
+	[[nodiscard]] const std::vector<QString> &messageBlacklistCommonTextLinks(
+			) const {
+		return _messageBlacklistCommonTextLinks;
+	}
+	void setMessageBlacklistCommonTextLinks(std::vector<QString> links) {
+		_messageBlacklistCommonTextLinks = std::move(links);
+	}
 	[[nodiscard]] const base::flat_map<PeerId, std::vector<QString>>
 		&messageBlacklistChannelKeywords() const {
 		return _messageBlacklistChannelKeywords;
@@ -288,6 +295,7 @@ private:
 	std::vector<PeerId> _localChatFilterAllPinnedPeers;
 	std::vector<QString> _messageBlacklistCommonKeywords;
 	std::vector<QString> _messageBlacklistCommonLinks;
+	std::vector<QString> _messageBlacklistCommonTextLinks;
 	base::flat_map<PeerId, std::vector<QString>>
 		_messageBlacklistChannelKeywords;
 	std::vector<PeerId> _quickForwardChannelPeerIds;

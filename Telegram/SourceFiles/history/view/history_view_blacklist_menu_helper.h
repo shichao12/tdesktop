@@ -19,6 +19,42 @@ namespace HistoryView {
 	return selection.expanded.simplified();
 }
 
+[[nodiscard]] inline QString BlacklistNormalizedTextLink(QString text) {
+	return text.trimmed().toCaseFolded();
+}
+
+[[nodiscard]] inline bool BlacklistTextLinkInList(
+		const std::vector<QString> &texts,
+		const QString &text) {
+	const auto normalized = BlacklistNormalizedTextLink(text);
+	if (normalized.isEmpty()) {
+		return false;
+	}
+	for (const auto &entry : texts) {
+		if (BlacklistNormalizedTextLink(entry) == normalized) {
+			return true;
+		}
+	}
+	return false;
+}
+
+[[nodiscard]] inline std::vector<QString> BlacklistTextLinksWithout(
+		std::vector<QString> texts,
+		const QString &text) {
+	const auto normalized = BlacklistNormalizedTextLink(text);
+	if (normalized.isEmpty()) {
+		return texts;
+	}
+	auto result = std::vector<QString>();
+	result.reserve(texts.size());
+	for (auto &entry : texts) {
+		if (BlacklistNormalizedTextLink(entry) != normalized) {
+			result.push_back(std::move(entry));
+		}
+	}
+	return result;
+}
+
 [[nodiscard]] inline QString BlacklistNormalizedLink(QString link) {
 	link = link.trimmed().toCaseFolded();
 	while (link.endsWith('/')) {

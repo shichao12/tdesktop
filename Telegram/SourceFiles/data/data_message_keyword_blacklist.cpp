@@ -131,10 +131,13 @@ MessageKeywordBlacklist::MessageKeywordBlacklist(not_null<Session*> owner)
 	owner->session().settings().messageBlacklistCommonKeywords()))
 , _commonLinks(NormalizeLinks(
 	owner->session().settings().messageBlacklistCommonLinks()))
+, _commonTextLinks(NormalizeKeywords(
+	owner->session().settings().messageBlacklistCommonTextLinks()))
 , _channelKeywords(
 	owner->session().settings().messageBlacklistChannelKeywords()) {
 	_commonKeywordsFolded = FoldKeywords(_commonKeywords);
 	_commonLinksNormalized = NormalizeLinkMatches(_commonLinks);
+	_commonTextLinksFolded = FoldKeywords(_commonTextLinks);
 	for (auto i = begin(_channelKeywords); i != end(_channelKeywords);) {
 		i->second = NormalizeKeywords(std::move(i->second));
 		if (i->second.empty()) {
@@ -154,6 +157,10 @@ const std::vector<QString> &MessageKeywordBlacklist::commonKeywords() const {
 
 const std::vector<QString> &MessageKeywordBlacklist::commonLinks() const {
 	return _commonLinks;
+}
+
+const std::vector<QString> &MessageKeywordBlacklist::commonTextLinks() const {
+	return _commonTextLinks;
 }
 
 const std::vector<QString> &MessageKeywordBlacklist::channelKeywords(
@@ -190,6 +197,22 @@ void MessageKeywordBlacklist::setCommonLinks(std::vector<QString> links) {
 	_changed.fire({});
 }
 
+void MessageKeywordBlacklist::setCommonTextLinks(std::vector<QString> links) {
+	links = NormalizeKeywords(std::move(links));
+	if (_commonTextLinks == links) {
+		return;
+	}
+	_commonTextLinks = std::move(links);
+	_commonTextLinksFolded = FoldKeywords(_commonTextLinks);
+	save();
+	_owner->enumerateLoadedMessages([&](not_null<HistoryItem*> item) {
+		if (HasBlockedLinkEntities(item->originalText())) {
+			_owner->requestItemTextRefresh(item);
+		}
+	});
+	_changed.fire({});
+}
+
 void MessageKeywordBlacklist::setChannelKeywords(
 		PeerId peerId,
 		std::vector<QString> keywords) {
@@ -217,7 +240,9 @@ void MessageKeywordBlacklist::setChannelKeywords(
 }
 
 bool MessageKeywordBlacklist::hasRules(PeerId peerId) const {
-	if (!_commonKeywords.empty() || !_commonLinks.empty()) {
+	if (!_commonKeywords.empty()
+		|| !_commonLinks.empty()
+		|| !_commonTextLinks.empty()) {
 		return true;
 	}
 	const auto i = _channelKeywords.find(peerId);
@@ -243,7 +268,7 @@ bool MessageKeywordBlacklist::matches(not_null<HistoryItem*> item) const {
 
 std::vector<std::pair<int, int>> MessageKeywordBlacklist::blockedLinkRanges(
 		const TextWithEntities &text) const {
-	if (_commonLinksNormalized.empty()) {
+	if (_commonLinksNormalized.empty() && _commonTextLinksFolded.empty()) {
 		return {};
 	}
 	auto result = std::vector<std::pair<int, int>>();
@@ -258,10 +283,23 @@ std::vector<std::pair<int, int>> MessageKeywordBlacklist::blockedLinkRanges(
 		const auto length = std::min(
 			entity.length(),
 			text.text.size() - offset);
-		const auto link = NormalizeLink((entity.type() == EntityType::Url)
-			? text.text.mid(offset, length)
-			: entity.data());
-		if (ranges::contains(_commonLinksNormalized, link)) {
+		auto blocked = false;
+		if (!_commonLinksNormalized.empty()) {
+			const auto link = NormalizeLink(
+				(entity.type() == EntityType::Url)
+					? text.text.mid(offset, length)
+					: entity.data());
+			blocked = ranges::contains(_commonLinksNormalized, link);
+		}
+		if (!blocked
+			&& entity.type() == EntityType::CustomUrl
+			&& !_commonTextLinksFolded.empty()) {
+			const auto textLink = text.text.mid(
+				offset,
+				length).trimmed().toCaseFolded();
+			blocked = ranges::contains(_commonTextLinksFolded, textLink);
+		}
+		if (blocked) {
 			result.emplace_back(offset, length);
 		}
 	}
@@ -411,6 +449,8 @@ void MessageKeywordBlacklist::save() {
 		_commonKeywords);
 	_owner->session().settings().setMessageBlacklistCommonLinks(
 		_commonLinks);
+	_owner->session().settings().setMessageBlacklistCommonTextLinks(
+		_commonTextLinks);
 	_owner->session().settings().setMessageBlacklistChannelKeywords(
 		_channelKeywords);
 	_owner->session().saveSettingsDelayed();

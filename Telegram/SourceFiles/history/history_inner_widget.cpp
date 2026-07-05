@@ -3623,6 +3623,38 @@ void HistoryInner::showContextMenu(QContextMenuEvent *e, bool showFromTouch) {
 					},
 					&st::menuIconLink);
 			}
+			if (link->getTextEntity().type == EntityType::CustomUrl
+				&& !blacklistLink.isEmpty()
+				&& view) {
+				const auto textLink = view->textLinkDisplayText(link);
+				if (!textLink.isEmpty()) {
+					auto &data = _controller->session().data();
+					auto &blacklist = data.messageKeywordBlacklist();
+					const auto listed = HistoryView::BlacklistTextLinkInList(
+						blacklist.commonTextLinks(),
+						textLink);
+					_menu->addAction(
+						listed
+							? tr::lng_message_blacklist_remove_text_link_context(
+								tr::now)
+							: tr::lng_message_blacklist_add_text_link_context(
+								tr::now),
+						[=] {
+							auto &data = _controller->session().data();
+							auto &blacklist = data.messageKeywordBlacklist();
+							auto textLinks = blacklist.commonTextLinks();
+							if (listed) {
+								textLinks = HistoryView::BlacklistTextLinksWithout(
+									std::move(textLinks),
+									textLink);
+							} else {
+								textLinks.push_back(textLink);
+							}
+							blacklist.setCommonTextLinks(std::move(textLinks));
+						},
+						&st::menuIconBlock);
+				}
+			}
 		} else if (item && item->hasDirectLink() && isUponSelected != 2 && isUponSelected != -2) {
 			_menu->addAction(item->history()->peer->isMegagroup() ? tr::lng_context_copy_message_link(tr::now) : tr::lng_context_copy_post_link(tr::now), [=] {
 				HistoryView::CopyPostLink(controller, itemId, HistoryView::Context::History);

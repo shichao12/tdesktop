@@ -2588,6 +2588,16 @@ ClickHandlerPtr Element::rightActionLink(
 	return ClickHandlerPtr();
 }
 
+QString Element::textLinkDisplayText(const ClickHandlerPtr &handler) const {
+	if (!handler) {
+		return QString();
+	}
+	const auto range = text().linkRangeFor(handler);
+	return range.empty()
+		? QString()
+		: text().toTextForMimeData(range).rich.text.trimmed();
+}
+
 TimeId Element::displayedEditDate() const {
 	return TimeId(0);
 }

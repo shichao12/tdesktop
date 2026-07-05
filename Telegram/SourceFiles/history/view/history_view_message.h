@@ -462,6 +462,8 @@ private:
 
 	[[nodiscard]] bool displayFastShare() const;
 	[[nodiscard]] bool displayFastSaveToSelf() const;
+	[[nodiscard]] bool displayQuickForwardTargets() const;
+	[[nodiscard]] bool displayRightActionButtons() const;
 	[[nodiscard]] bool displayGoToOriginal() const;
 	[[nodiscard]] int rightActionButtonSize() const;
 	[[nodiscard]] int rightActionButtonsCount() const;

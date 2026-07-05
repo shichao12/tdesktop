@@ -5944,7 +5944,7 @@ std::optional<QSize> Message::rightActionSize() const {
 		? ((_rightAction && _rightAction->second)
 			? QSize(st::historyFastCloseSize, st::historyFastCloseSize * 2)
 			: QSize(st::historyFastCloseSize, st::historyFastCloseSize))
-		: displayFastSaveToSelf()
+		: displayRightActionButtons()
 		? QSize(
 			st::historyFastShareSize,
 			st::historyFastShareSize * rightActionButtonsCount())
@@ -5982,6 +5982,19 @@ bool Message::displayFastSaveToSelf() const {
 		&& (context() != Context::SavedSublist);
 }
 
+bool Message::displayQuickForwardTargets() const {
+	const auto item = data();
+	const auto peer = item->history()->peer;
+	return peer->isSelf()
+		&& item->allowsForward()
+		&& !isPinnedContext()
+		&& !FastShareChannelTargets(&data()->history()->session()).empty();
+}
+
+bool Message::displayRightActionButtons() const {
+	return displayFastSaveToSelf() || displayQuickForwardTargets();
+}
+
 bool Message::displayGoToOriginal() const {
 	if (isPinnedContext()) {
 		return !hasOutLayout();
@@ -6005,8 +6018,9 @@ int Message::rightActionButtonSize() const {
 }
 
 int Message::rightActionButtonsCount() const {
-	return displayFastSaveToSelf()
-		? (2 + int(FastShareChannelTargets(&data()->history()->session()).size()))
+	return displayRightActionButtons()
+		? ((displayFastSaveToSelf() ? 2 : 1)
+			+ int(FastShareChannelTargets(&data()->history()->session()).size()))
 		: 1;
 }
 
@@ -6107,13 +6121,14 @@ void Message::drawRightAction(
 	} else if (!_rightAction->buttons.empty()) {
 		const auto buttonSize = rightActionButtonSize();
 		const auto last = int(_rightAction->buttons.size()) - 1;
+		const auto save = displayFastSaveToSelf();
 		for (auto i = 0; i <= last; ++i) {
 			const auto rect = QRect(
 				left,
 				top + i * buttonSize,
 				size->width(),
 				buttonSize);
-			const auto &icon = (i == 0)
+			const auto &icon = (save && i == 0)
 				? st->historyFastSaveIcon()
 				: (i == last)
 				? st->historyFastShareIcon()
@@ -6177,19 +6192,22 @@ ClickHandlerPtr Message::rightActionLink(
 
 void Message::ensureRightAction() const {
 	if (_rightAction) {
-		if (displayFastSaveToSelf()) {
+		if (displayRightActionButtons()) {
 			const auto count = rightActionButtonsCount();
 			if (int(_rightAction->buttons.size()) != count) {
 				_rightAction->buttons.clear();
 				_rightAction->buttons.resize(count);
 				_rightAction->link = nullptr;
 			}
+		} else if (!_rightAction->buttons.empty()) {
+			_rightAction->buttons.clear();
+			_rightAction->link = nullptr;
 		}
 		return;
 	}
 	Assert(rightActionSize().has_value());
 	_rightAction = std::make_unique<RightAction>();
-	if (displayFastSaveToSelf()) {
+	if (displayRightActionButtons()) {
 		_rightAction->buttons.resize(rightActionButtonsCount());
 	}
 }
@@ -6291,15 +6309,15 @@ ClickHandlerPtr Message::prepareRightActionLink() const {
 		}
 
 		if (const auto item = owner->message(itemId)) {
-			if (*showByThread) {
+			if (peer) {
+				FastShareMessageToPeer(controller->uiShow(), item, peer);
+			} else if (*showByThread) {
 				(*showByThread)(controller);
 			} else if (savedFromPeer && savedFromMsgId) {
 				controller->showPeerHistory(
 					savedFromPeer,
 					Window::SectionShow::Way::Forward,
 					savedFromMsgId);
-			} else if (peer) {
-				FastShareMessageToPeer(controller->uiShow(), item, peer);
 			} else if (base::IsCtrlPressed()) {
 				FastShareMessageToPeer(
 					controller->uiShow(),
@@ -6335,14 +6353,18 @@ ClickHandlerPtr Message::prepareRightActionLink() const {
 	const auto makeQuickHandlers = [&] {
 		const auto targets = FastShareChannelTargets(
 			&data()->history()->session());
-		const auto count = int(targets.size()) + 2;
+		const auto save = displayFastSaveToSelf();
+		const auto count = int(targets.size()) + 1 + int(save);
 		if (int(_rightAction->buttons.size()) != count) {
 			_rightAction->buttons.clear();
 			_rightAction->buttons.resize(count);
 		}
-		_rightAction->buttons[0].link = makeSaveHandler();
+		auto index = 0;
+		if (save) {
+			_rightAction->buttons[index++].link = makeSaveHandler();
+		}
 		for (auto i = 0; i != int(targets.size()); ++i) {
-			_rightAction->buttons[i + 1].link = makePeerHandler(targets[i]);
+			_rightAction->buttons[index++].link = makePeerHandler(targets[i]);
 		}
 		auto share = makeShareHandler();
 		share->setProperty(
@@ -6366,12 +6388,14 @@ ClickHandlerPtr Message::prepareRightActionLink() const {
 	};
 	const auto navigates = data()->externalReply()
 		|| (savedFromPeer && savedFromMsgId);
-	if (displayFastSaveToSelf()) {
+	if (displayRightActionButtons()) {
 		if (!_rightAction->buttons.empty()) {
 			return makeQuickHandlers();
 		}
-		_rightAction->second->link = makeSecondShareHandler();
-		return makeLegacySaveHandler();
+		if (displayFastSaveToSelf()) {
+			_rightAction->second->link = makeSecondShareHandler();
+			return makeLegacySaveHandler();
+		}
 	}
 	const auto result = makeShareHandler();
 	if (!navigates) {

@@ -42,6 +42,7 @@ struct BubblePattern;
 inline constexpr auto kColorPatternsCount = Text::kMaxQuoteOutlines;
 inline constexpr auto kColorIndexCount = uint8(1 << 6);
 inline constexpr auto kSimpleColorIndexCount = uint8(7);
+inline constexpr auto kBlockedLinkSpecialColorIndex = 9;
 
 inline constexpr auto kDefaultBgOpacity = 0.12;
 inline constexpr auto kDefaultOutline1Opacity = 0.9;

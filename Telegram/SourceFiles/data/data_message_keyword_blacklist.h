@@ -12,6 +12,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 class HistoryItem;
 class PeerData;
+struct TextWithEntities;
 
 namespace Data {
 
@@ -25,13 +26,17 @@ public:
 	~MessageKeywordBlacklist();
 
 	[[nodiscard]] const std::vector<QString> &commonKeywords() const;
+	[[nodiscard]] const std::vector<QString> &commonLinks() const;
 	[[nodiscard]] const std::vector<QString> &channelKeywords(
 		PeerId peerId) const;
 	void setCommonKeywords(std::vector<QString> keywords);
+	void setCommonLinks(std::vector<QString> links);
 	void setChannelKeywords(PeerId peerId, std::vector<QString> keywords);
 
 	[[nodiscard]] bool hasRules(PeerId peerId) const;
 	[[nodiscard]] bool matches(not_null<HistoryItem*> item) const;
+	[[nodiscard]] std::vector<std::pair<int, int>> blockedLinkRanges(
+		const TextWithEntities &text) const;
 	[[nodiscard]] bool isCollapsed(not_null<HistoryItem*> item) const;
 	[[nodiscard]] bool isExpanded(FullMsgId itemId) const;
 	void setExpanded(not_null<HistoryItem*> item, bool expanded);
@@ -57,6 +62,8 @@ private:
 	const not_null<Session*> _owner;
 	std::vector<QString> _commonKeywords;
 	std::vector<QString> _commonKeywordsFolded;
+	std::vector<QString> _commonLinks;
+	std::vector<QString> _commonLinksNormalized;
 	ChannelKeywords _channelKeywords;
 	ChannelKeywords _channelKeywordsFolded;
 	base::flat_map<PeerId, base::flat_set<MsgId>> _matchedByPeer;

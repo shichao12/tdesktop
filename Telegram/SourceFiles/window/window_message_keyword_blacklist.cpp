@@ -18,42 +18,120 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "lang/lang_keys.h"
 #include "main/main_session.h"
 #include "settings/settings_common.h"
+#include "ui/controls/sub_tabs.h"
 #include "ui/layers/generic_box.h"
 #include "ui/vertical_list.h"
 #include "ui/widgets/buttons.h"
 #include "ui/widgets/fields/input_field.h"
+#include "ui/widgets/popup_menu.h"
 #include "ui/wrap/vertical_layout.h"
 #include "window/window_session_controller.h"
+#include "styles/style_info.h"
 #include "styles/style_layers.h"
 #include "styles/style_menu_icons.h"
 #include "styles/style_settings.h"
 #include "styles/style_widgets.h"
 
+#include <QtGui/QCursor>
+
 namespace Window {
 namespace {
 
-constexpr auto kMaxMessageBlacklistKeywordLength = 128;
+constexpr auto kMaxMessageBlacklistEntryLength = 128;
 
-[[nodiscard]] std::vector<QString> CurrentKeywords(
-		not_null<SessionController*> controller,
-		PeerData *peer) {
-	auto &blacklist = controller->session().data().messageKeywordBlacklist();
-	const auto &keywords = peer
-		? blacklist.channelKeywords(peer->id)
-		: blacklist.commonKeywords();
-	return { begin(keywords), end(keywords) };
+enum class BlacklistEntryType {
+	Keyword,
+	Link,
+};
+
+enum class BlacklistEntryFilter {
+	All,
+	Keyword,
+	Link,
+};
+
+[[nodiscard]] QString EntryFilterId(BlacklistEntryFilter filter) {
+	switch (filter) {
+	case BlacklistEntryFilter::All:
+		return u"all"_q;
+	case BlacklistEntryFilter::Keyword:
+		return u"keyword"_q;
+	case BlacklistEntryFilter::Link:
+		return u"link"_q;
+	}
+	Unexpected("Unknown blacklist entry filter.");
 }
 
-void SaveKeywords(
+[[nodiscard]] BlacklistEntryFilter EntryFilterFromId(const QString &id) {
+	if (id == EntryFilterId(BlacklistEntryFilter::Keyword)) {
+		return BlacklistEntryFilter::Keyword;
+	} else if (id == EntryFilterId(BlacklistEntryFilter::Link)) {
+		return BlacklistEntryFilter::Link;
+	}
+	return BlacklistEntryFilter::All;
+}
+
+[[nodiscard]] std::vector<QString> CurrentEntries(
 		not_null<SessionController*> controller,
 		PeerData *peer,
-		std::vector<QString> keywords) {
+		BlacklistEntryType type) {
 	auto &blacklist = controller->session().data().messageKeywordBlacklist();
-	if (peer) {
-		blacklist.setChannelKeywords(peer->id, std::move(keywords));
-	} else {
-		blacklist.setCommonKeywords(std::move(keywords));
+	if (type == BlacklistEntryType::Link) {
+		const auto &links = blacklist.commonLinks();
+		return { begin(links), end(links) };
 	}
+	const auto &entries = peer
+		? blacklist.channelKeywords(peer->id)
+		: blacklist.commonKeywords();
+	return { begin(entries), end(entries) };
+}
+
+void SaveEntries(
+		not_null<SessionController*> controller,
+		PeerData *peer,
+		std::vector<QString> entries,
+		BlacklistEntryType type) {
+	auto &blacklist = controller->session().data().messageKeywordBlacklist();
+	if (type == BlacklistEntryType::Link) {
+		blacklist.setCommonLinks(std::move(entries));
+		return;
+	}
+	if (peer) {
+		blacklist.setChannelKeywords(peer->id, std::move(entries));
+	} else {
+		blacklist.setCommonKeywords(std::move(entries));
+	}
+}
+
+[[nodiscard]] rpl::producer<QString> AddEntryText(BlacklistEntryType type) {
+	return (type == BlacklistEntryType::Link)
+		? tr::lng_message_blacklist_add_link()
+		: tr::lng_message_blacklist_add_keyword();
+}
+
+[[nodiscard]] rpl::producer<QString> EntryTypeText(BlacklistEntryType type) {
+	return (type == BlacklistEntryType::Link)
+		? tr::lng_message_blacklist_type_link()
+		: tr::lng_message_blacklist_type_text();
+}
+
+[[nodiscard]] rpl::producer<QString> DeleteEntryText(BlacklistEntryType type) {
+	return (type == BlacklistEntryType::Link)
+		? tr::lng_message_blacklist_delete_link()
+		: tr::lng_message_blacklist_delete_keyword();
+}
+
+[[nodiscard]] rpl::producer<QString> NoEntriesText(BlacklistEntryType type) {
+	return (type == BlacklistEntryType::Link)
+		? tr::lng_message_blacklist_no_links()
+		: tr::lng_message_blacklist_no_keywords();
+}
+
+[[nodiscard]] rpl::producer<QString> EntryPlaceholder(
+		BlacklistEntryType type) {
+	return (type == BlacklistEntryType::Link)
+		? tr::lng_message_blacklist_link_placeholder()
+		: tr::lng_message_blacklist_keyword_placeholder();
 }
 
 [[nodiscard]] QString ItemPreview(not_null<HistoryItem*> item) {
@@ -87,86 +165,163 @@ void OpenItem(
 	});
 }
 
-void ShowAddKeywordBox(
+void ShowAddEntryBox(
 		base::weak_qptr<Ui::GenericBox> parent,
 		not_null<SessionController*> controller,
-		PeerData *peer) {
+		PeerData *peer,
+		BlacklistEntryType initialType) {
 	const auto strong = parent.get();
 	if (!strong) {
 		return;
 	}
 	strong->uiShow()->showBox(Box([=](not_null<Ui::GenericBox*> box) {
-		box->setTitle(tr::lng_message_blacklist_add_keyword());
+		const auto type = box->lifetime().make_state<
+			rpl::variable<BlacklistEntryType>>(initialType);
+		const auto typeText = [=] {
+			return type->value(
+			) | rpl::map(EntryTypeText) | rpl::flatten_latest();
+		};
+		const auto addText = [=] {
+			return type->value(
+			) | rpl::map(AddEntryText) | rpl::flatten_latest();
+		};
+		box->setTitle(addText());
+		if (!peer) {
+			const auto button = Settings::AddButtonWithLabel(
+				box->verticalLayout(),
+				tr::lng_message_blacklist_entry_type(),
+				typeText(),
+				st::settingsButtonNoIcon);
+			const auto menu = button->lifetime().make_state<
+				base::unique_qptr<Ui::PopupMenu>>();
+			button->addClickHandler([=] {
+				*menu = base::make_unique_q<Ui::PopupMenu>(
+					button,
+					st::popupMenuWithIcons);
+				(*menu)->addAction(
+					tr::lng_message_blacklist_type_text(tr::now),
+					[=] { *type = BlacklistEntryType::Keyword; });
+				(*menu)->addAction(
+					tr::lng_message_blacklist_type_link(tr::now),
+					[=] { *type = BlacklistEntryType::Link; },
+					&st::menuIconLink);
+				(*menu)->popup(QCursor::pos());
+			});
+		}
 		const auto field = box->addRow(object_ptr<Ui::InputField>(
 			box,
 			st::defaultInputField,
 			Ui::InputField::Mode::SingleLine,
-			tr::lng_message_blacklist_keyword_placeholder(),
+			type->value(
+			) | rpl::map(EntryPlaceholder) | rpl::flatten_latest(),
 			QString()));
-		field->setMaxLength(kMaxMessageBlacklistKeywordLength);
+		field->setMaxLength(kMaxMessageBlacklistEntryLength);
 		box->setFocusCallback([=] {
 			field->setFocusFast();
 		});
 		const auto submit = [=] {
-			const auto keyword = field->getLastText().trimmed();
-			if (keyword.isEmpty()) {
+			const auto entry = field->getLastText().trimmed();
+			if (entry.isEmpty()) {
 				return;
 			}
-			auto keywords = CurrentKeywords(controller, peer);
-			keywords.push_back(keyword);
-			SaveKeywords(controller, peer, std::move(keywords));
+			const auto entryType = type->current();
+			auto entries = CurrentEntries(controller, peer, entryType);
+			entries.push_back(entry);
+			SaveEntries(controller, peer, std::move(entries), entryType);
 			box->closeBox();
 		};
 		field->submits() | rpl::on_next(submit, field->lifetime());
-		box->addButton(tr::lng_message_blacklist_add_keyword(), submit);
+		box->addButton(addText(), submit);
 		box->addButton(
 			tr::lng_message_blacklist_cancel(),
 			[=] { box->closeBox(); });
 	}));
 }
 
+void AddEntryButton(
+		base::weak_qptr<Ui::GenericBox> box,
+		not_null<Ui::VerticalLayout*> rows,
+		not_null<SessionController*> controller,
+		PeerData *peer,
+		BlacklistEntryType type) {
+	Settings::AddButtonWithIcon(
+		rows,
+		peer ? AddEntryText(type) : tr::lng_message_blacklist_add_entry(),
+		st::settingsButtonActive,
+		{ &st::menuIconAdd }
+	)->addClickHandler([=] {
+		ShowAddEntryBox(box, controller, peer, type);
+	});
+}
+
+void FillEntries(
+		base::weak_qptr<Ui::GenericBox> box,
+		not_null<Ui::VerticalLayout*> rows,
+		not_null<SessionController*> controller,
+		PeerData *peer,
+		BlacklistEntryType type) {
+	if (!box) {
+		return;
+	}
+
+	const auto entries = CurrentEntries(controller, peer, type);
+	if (entries.empty()) {
+		Ui::AddDividerText(rows, NoEntriesText(type));
+		return;
+	}
+
+	for (const auto &entry : entries) {
+		Settings::AddButtonWithLabel(
+			rows,
+			rpl::single(entry),
+			DeleteEntryText(type),
+			st::settingsButton,
+			{ &st::menuIconDelete }
+		)->addClickHandler([=] {
+			auto entries = CurrentEntries(controller, peer, type);
+			for (auto i = begin(entries); i != end(entries); ++i) {
+				if (*i == entry) {
+					entries.erase(i);
+					break;
+				}
+			}
+			SaveEntries(controller, peer, std::move(entries), type);
+		});
+	}
+}
+
 void FillKeywords(
 		base::weak_qptr<Ui::GenericBox> box,
 		not_null<Ui::VerticalLayout*> rows,
 		not_null<SessionController*> controller,
-		PeerData *peer) {
+		PeerData *peer,
+		BlacklistEntryFilter filter) {
 	if (!box) {
 		return;
 	}
 	rows->clear();
-
-	Settings::AddButtonWithIcon(
+	AddEntryButton(
+		box,
 		rows,
-		tr::lng_message_blacklist_add_keyword(),
-		st::settingsButtonActive,
-		{ &st::menuIconAdd }
-	)->addClickHandler([=] {
-		ShowAddKeywordBox(box, controller, peer);
-	});
-
-	const auto keywords = CurrentKeywords(controller, peer);
-	if (keywords.empty()) {
-		Ui::AddDividerText(rows, tr::lng_message_blacklist_no_keywords());
-		return;
-	}
-
-	for (const auto &keyword : keywords) {
-		Settings::AddButtonWithLabel(
+		controller,
+		peer,
+		(!peer && filter == BlacklistEntryFilter::Link)
+			? BlacklistEntryType::Link
+			: BlacklistEntryType::Keyword);
+	if (!peer && filter != BlacklistEntryFilter::Link) {
+		Ui::AddSubsectionTitle(
 			rows,
-			rpl::single(keyword),
-			tr::lng_message_blacklist_delete_keyword(),
-			st::settingsButton,
-			{ &st::menuIconDelete }
-		)->addClickHandler([=] {
-			auto keywords = CurrentKeywords(controller, peer);
-			for (auto i = begin(keywords); i != end(keywords); ++i) {
-				if (*i == keyword) {
-					keywords.erase(i);
-					break;
-				}
-			}
-			SaveKeywords(controller, peer, std::move(keywords));
-		});
+			tr::lng_message_blacklist_common_keywords());
+		FillEntries(box, rows, controller, peer, BlacklistEntryType::Keyword);
+	}
+	if (!peer && filter != BlacklistEntryFilter::Keyword) {
+		Ui::AddSubsectionTitle(
+			rows,
+			tr::lng_message_blacklist_common_links());
+		FillEntries(box, rows, controller, peer, BlacklistEntryType::Link);
+	}
+	if (peer) {
+		FillEntries(box, rows, controller, peer, BlacklistEntryType::Keyword);
 	}
 }
 
@@ -240,22 +395,75 @@ void ShowMessageKeywordBlacklistKeywordsBox(
 	controller->show(Box([=](not_null<Ui::GenericBox*> box) {
 		box->setTitle(peer
 			? tr::lng_message_blacklist_channel_keywords()
-			: tr::lng_message_blacklist_common_keywords());
+			: tr::lng_message_blacklist_manage_common());
 		box->setMaxHeight(st::boxMaxListHeight);
+		if (!peer) {
+			box->setWidth(st::boxWideWidth);
+			box->setMinHeight(st::boxMaxListHeight);
+		}
 		box->addButton(
 			tr::lng_message_blacklist_close(),
 			[=] { box->closeBox(); });
+
+		const auto filter = box->lifetime().make_state<
+			rpl::variable<BlacklistEntryFilter>>(BlacklistEntryFilter::All);
+		if (!peer) {
+			const auto tabs = box->addRow(
+				object_ptr<Ui::SubTabs>(
+					box,
+					st::defaultSubTabs,
+					Ui::SubTabsOptions{
+						.selected = EntryFilterId(filter->current()),
+						.centered = true,
+					},
+					std::vector<Ui::SubTabsTab>{
+						{
+							EntryFilterId(BlacklistEntryFilter::All),
+							tr::lng_message_blacklist_filter_all(
+								tr::now,
+								tr::marked),
+						},
+						{
+							EntryFilterId(BlacklistEntryFilter::Keyword),
+							tr::lng_message_blacklist_type_text(
+								tr::now,
+								tr::marked),
+						},
+						{
+							EntryFilterId(BlacklistEntryFilter::Link),
+							tr::lng_message_blacklist_type_link(
+								tr::now,
+								tr::marked),
+						},
+					}),
+				st::boxRowPadding);
+			tabs->activated() | rpl::on_next([=](const QString &id) {
+				tabs->setActiveTab(id);
+				*filter = EntryFilterFromId(id);
+			}, tabs->lifetime());
+		}
 
 		const auto rows = box->verticalLayout()->add(
 			object_ptr<Ui::VerticalLayout>(box->verticalLayout()));
 		const auto weakBox = base::make_weak(box);
 		const auto weakRows = base::make_weak(rows);
-		FillKeywords(weakBox, rows, controller, peer);
+		FillKeywords(weakBox, rows, controller, peer, filter->current());
 
 		controller->session().data().messageKeywordBlacklist().changed(
 		) | rpl::on_next([=] {
 			if (const auto strongRows = weakRows.get()) {
-				FillKeywords(weakBox, strongRows, controller, peer);
+				FillKeywords(
+					weakBox,
+					strongRows,
+					controller,
+					peer,
+					filter->current());
+			}
+		}, box->lifetime());
+		filter->changes(
+		) | rpl::on_next([=](BlacklistEntryFilter value) {
+			if (const auto strongRows = weakRows.get()) {
+				FillKeywords(weakBox, strongRows, controller, peer, value);
 			}
 		}, box->lifetime());
 	}));

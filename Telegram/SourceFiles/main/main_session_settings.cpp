@@ -100,6 +100,10 @@ QByteArray SessionSettings::serialize() const {
 	}
 	size += sizeof(qint32)
 		+ _quickForwardChannelPeerIds.size() * sizeof(quint64);
+	size += sizeof(qint32);
+	for (const auto &link : _messageBlacklistCommonLinks) {
+		size += Serialize::stringSize(link);
+	}
 
 	auto result = QByteArray();
 	result.reserve(size);
@@ -228,6 +232,10 @@ QByteArray SessionSettings::serialize() const {
 		for (const auto &peerId : _quickForwardChannelPeerIds) {
 			stream << SerializePeerId(peerId);
 		}
+		stream << qint32(_messageBlacklistCommonLinks.size());
+		for (const auto &link : _messageBlacklistCommonLinks) {
+			stream << link;
+		}
 	}
 
 	Ensures(result.size() == size);
@@ -311,6 +319,7 @@ void SessionSettings::addFromSerialized(const QByteArray &serialized) {
 	base::flat_map<PeerId, std::vector<QString>>
 		messageBlacklistChannelKeywords;
 	std::vector<PeerId> quickForwardChannelPeerIds;
+	std::vector<QString> messageBlacklistCommonLinks;
 
 	stream >> versionTag;
 	if (versionTag == kVersionTag) {
@@ -963,6 +972,30 @@ void SessionSettings::addFromSerialized(const QByteArray &serialized) {
 			}
 		}
 	}
+	if (!stream.atEnd()) {
+		auto count = qint32(0);
+		stream >> count;
+		if (stream.status() == QDataStream::Ok) {
+			if (count < 0) {
+				LOG(("App Error: "
+					"Bad data for SessionSettings::addFromSerialized()"));
+				return;
+			}
+			messageBlacklistCommonLinks.reserve(count);
+			for (auto i = 0; i != count; ++i) {
+				QString link;
+				stream >> link;
+				if (stream.status() != QDataStream::Ok) {
+					LOG(("App Error: "
+						"Bad data for SessionSettings::addFromSerialized()"));
+					return;
+				}
+				if (!link.isEmpty()) {
+					messageBlacklistCommonLinks.push_back(std::move(link));
+				}
+			}
+		}
+	}
 	if (stream.status() != QDataStream::Ok) {
 		LOG(("App Error: "
 			"Bad data for SessionSettings::addFromSerialized()"));
@@ -1035,6 +1068,7 @@ void SessionSettings::addFromSerialized(const QByteArray &serialized) {
 	_localChatFilterAllPinnedPeers = std::move(localChatFilterAllPinnedPeers);
 	_messageBlacklistCommonKeywords = std::move(
 		messageBlacklistCommonKeywords);
+	_messageBlacklistCommonLinks = std::move(messageBlacklistCommonLinks);
 	_messageBlacklistChannelKeywords = std::move(
 		messageBlacklistChannelKeywords);
 	_quickForwardChannelPeerIds = std::move(quickForwardChannelPeerIds);

@@ -663,6 +663,10 @@ void ChatStyle::applyAdjustedServiceBg(QColor serviceBg) {
 std::span<Text::SpecialColor> ChatStyle::highlightColors() const {
 	if (_highlightColors.empty()) {
 		_highlightColors = SyntaxHighlightColors(this);
+		const auto &blockedLinkFg = windowSubTextFg();
+		_highlightColors.push_back({
+			&blockedLinkFg->p,
+			&blockedLinkFg->p });
 	}
 	return _highlightColors;
 }

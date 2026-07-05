@@ -29,6 +29,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "history/history_item_components.h"
 #include "history/history_item_helpers.h"
 #include "data/data_channel.h"
+#include "data/data_message_keyword_blacklist.h"
 #include "data/data_session.h"
 #include "iv/iv_cached_media.h"
 #include "iv/iv_rich_page.h"
@@ -66,6 +67,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "styles/style_chat.h"
 #include "styles/style_dialogs.h"
 #include "styles/style_iv.h"
+
+#include <algorithm>
 
 namespace HistoryView {
 namespace {
@@ -2066,7 +2069,34 @@ void Element::setTextWithLinks(
 		const auto item = data();
 		const auto &options = Ui::ItemTextOptions(item);
 		clearSpecialOnlyEmoji();
-		_text.setMarkedText(st::messageTextStyle, text, options, context);
+		auto &blacklist = history()->owner().messageKeywordBlacklist();
+		const auto ranges = blacklist.blockedLinkRanges(text);
+		if (ranges.empty()) {
+			_text.setMarkedText(st::messageTextStyle, text, options, context);
+		} else {
+			auto marked = text;
+			const auto colorData = QString(
+				QChar(Ui::kBlockedLinkSpecialColorIndex));
+			for (const auto &[offset, length] : ranges) {
+				marked.entities.push_back({
+					EntityType::Colorized,
+					offset,
+					length,
+					colorData });
+			}
+			std::sort(
+				marked.entities.begin(),
+				marked.entities.end(),
+				[](const auto &left, const auto &right) {
+					if (left.offset() != right.offset()) {
+						return left.offset() < right.offset();
+					} else if (left.length() != right.length()) {
+						return left.length() > right.length();
+					}
+					return int(left.type()) < int(right.type());
+				});
+			_text.setMarkedText(st::messageTextStyle, marked, options, context);
+		}
 		if (!item->_text.empty() && _text.isEmpty()){
 			// If server has allowed some text that we've trim-ed entirely,
 			// just replace it with something so that UI won't look buggy.

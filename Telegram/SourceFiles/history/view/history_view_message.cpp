@@ -29,6 +29,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "history/view/history_view_transcribe_button.h"
 #include "history/view/history_view_summary_header.h"
 #include "history/view/history_view_view_button.h" // ViewButton.
+#include "history/view/history_view_service_message.h"
 #include "history/history.h"
 #include "iv/iv_instance.h"
 #include "iv/iv_rich_page.h"
@@ -46,6 +47,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "data/components/factchecks.h"
 #include "data/components/sponsored_messages.h"
 #include "data/data_session.h"
+#include "data/data_message_keyword_blacklist.h"
 #include "data/data_user.h"
 #include "data/data_chat.h"
 #include "data/data_channel.h"
@@ -1244,6 +1246,15 @@ QRect Message::effectIconGeometry() const {
 QSize Message::performCountOptimalSize() {
 	const auto item = data();
 
+	if (blacklistCollapsed()) {
+		const auto text = tr::lng_message_blacklist_hidden(tr::now);
+		return QSize(
+			st::msgServiceFont->width(text)
+				+ st::msgServicePadding.left()
+				+ st::msgServicePadding.right(),
+			st::msgServiceFont->height);
+	}
+
 	const auto replyData = item->Get<HistoryMessageReply>();
 	const auto &summary = item->summaryEntry();
 	const auto showSummaryReply = !summary.result.empty() && summary.shown;
@@ -1610,6 +1621,9 @@ int Message::marginTop() const {
 	if (const auto bar = Get<ForumThreadBar>()) {
 		result += bar->height();
 	}
+	if (blacklistExpandedNoticeShown()) {
+		result += blacklistExpandedNoticeHeight();
+	}
 	if (const auto service = Get<ServicePreMessage>()) {
 		if (!service->below) {
 			result += service->height;
@@ -1635,6 +1649,163 @@ int Message::marginBottom() const {
 		result += margins->bottom;
 	}
 	return result;
+}
+
+bool Message::blacklistCollapsed() const {
+	return data()->history()->owner().messageKeywordBlacklist().isCollapsed(
+		data());
+}
+
+bool Message::blacklistExpandedNoticeShown() const {
+	auto &blacklist = data()->history()->owner().messageKeywordBlacklist();
+	return blacklist.matches(data()) && blacklist.isExpanded(data()->fullId());
+}
+
+QRect Message::blacklistCollapsedGeometry() const {
+	const auto text = tr::lng_message_blacklist_hidden(tr::now);
+	const auto textWidth = st::msgServiceFont->width(text);
+	const auto padding = st::msgServicePadding;
+	const auto margins = st::msgServiceMargin;
+	const auto maxWidth = (delegate()->elementChatMode()
+			== ElementChatMode::Wide)
+		? std::min(width(), WideChatWidth())
+		: width();
+	const auto available = std::max(
+		maxWidth - margins.left() - margins.right(),
+		1);
+	const auto bubbleWidth = std::min(
+		textWidth + padding.left() + padding.right(),
+		available);
+	const auto bubbleHeight = padding.top()
+		+ st::msgServiceFont->height
+		+ padding.bottom();
+	const auto left = margins.left() + (available - bubbleWidth) / 2;
+	return QRect(left, marginTop(), bubbleWidth, bubbleHeight);
+}
+
+int Message::blacklistExpandedNoticeHeight() const {
+	return st::msgServiceMargin.top()
+		+ st::msgServicePadding.top()
+		+ st::msgServiceFont->height
+		+ st::msgServicePadding.bottom()
+		+ st::msgServiceMargin.bottom();
+}
+
+QRect Message::blacklistExpandedNoticeGeometry(
+		QRect messageGeometry) const {
+	const auto text = tr::lng_message_blacklist_temporary_shown(tr::now);
+	const auto action = tr::lng_message_blacklist_hide_again(tr::now);
+	const auto spacing = st::msgServiceFont->spacew * 2;
+	const auto textWidth = st::msgServiceFont->width(text)
+		+ spacing
+		+ st::msgServiceFont->width(action);
+	const auto padding = st::msgServicePadding;
+	const auto margins = st::msgServiceMargin;
+	const auto maxWidth = (delegate()->elementChatMode()
+			== ElementChatMode::Wide)
+		? std::min(width(), WideChatWidth())
+		: width();
+	const auto available = std::max(
+		maxWidth - margins.left() - margins.right(),
+		1);
+	const auto bubbleWidth = std::min(
+		textWidth + padding.left() + padding.right(),
+		available);
+	const auto bubbleHeight = padding.top()
+		+ st::msgServiceFont->height
+		+ padding.bottom();
+	const auto left = margins.left() + (available - bubbleWidth) / 2;
+	const auto serviceHeight = [&] {
+		const auto service = Get<ServicePreMessage>();
+		return (service && !service->below) ? service->height : 0;
+	}();
+	const auto top = messageGeometry.top()
+		- serviceHeight
+		- blacklistExpandedNoticeHeight()
+		- st::msgMargin.top()
+		+ margins.top();
+	return QRect(left, top, bubbleWidth, bubbleHeight);
+}
+
+QRect Message::blacklistHideAgainGeometry(QRect geometry) const {
+	const auto action = tr::lng_message_blacklist_hide_again(tr::now);
+	const auto inner = geometry.marginsRemoved(st::msgServicePadding);
+	const auto width = std::min(
+		st::msgServiceFont->width(action),
+		std::max(inner.width(), 0));
+	return QRect(
+		inner.right() - width + 1,
+		inner.top(),
+		width,
+		inner.height());
+}
+
+void Message::paintBlacklistCollapsed(
+		Painter &p,
+		const PaintContext &context,
+		QRect geometry) const {
+	ServiceMessagePainter::PaintBubble(p, context.st, geometry);
+
+	p.setFont(st::msgServiceFont);
+	p.setPen(context.st->msgServiceFg());
+	p.drawText(
+		geometry.marginsRemoved(st::msgServicePadding),
+		Qt::AlignLeft | Qt::AlignVCenter,
+		tr::lng_message_blacklist_hidden(tr::now));
+}
+
+void Message::paintBlacklistExpandedNotice(
+		Painter &p,
+		const PaintContext &context,
+		QRect geometry) const {
+	ServiceMessagePainter::PaintBubble(p, context.st, geometry);
+
+	const auto text = tr::lng_message_blacklist_temporary_shown(tr::now);
+	const auto action = tr::lng_message_blacklist_hide_again(tr::now);
+	const auto inner = geometry.marginsRemoved(st::msgServicePadding);
+	const auto actionGeometry = blacklistHideAgainGeometry(geometry);
+	auto textGeometry = inner;
+	textGeometry.setRight(actionGeometry.left()
+		- st::msgServiceFont->spacew);
+
+	p.setFont(st::msgServiceFont);
+	p.setPen(context.st->msgServiceFg());
+	if (textGeometry.width() > 0) {
+		p.drawText(
+			textGeometry,
+			Qt::AlignLeft | Qt::AlignVCenter,
+			st::msgServiceFont->elided(text, textGeometry.width()));
+	}
+	p.drawText(
+		actionGeometry,
+		Qt::AlignRight | Qt::AlignVCenter,
+		action);
+}
+
+ClickHandlerPtr Message::blacklistToggleLink() const {
+	if (!_blacklistToggleLink) {
+		const auto owner = &data()->history()->owner();
+		const auto itemId = data()->fullId();
+		_blacklistToggleLink = std::make_shared<LambdaClickHandler>([=] {
+			if (const auto item = owner->message(itemId)) {
+				owner->messageKeywordBlacklist().toggleExpanded(item);
+			}
+		});
+	}
+	return _blacklistToggleLink;
+}
+
+ClickHandlerPtr Message::blacklistHideAgainLink() const {
+	if (!_blacklistHideAgainLink) {
+		const auto owner = &data()->history()->owner();
+		const auto itemId = data()->fullId();
+		_blacklistHideAgainLink = std::make_shared<LambdaClickHandler>([=] {
+			if (const auto item = owner->message(itemId)) {
+				owner->messageKeywordBlacklist().setExpanded(item, false);
+			}
+		});
+	}
+	return _blacklistHideAgainLink;
 }
 
 void Message::draw(Painter &p, const PaintContext &context) const {
@@ -1689,6 +1860,17 @@ void Message::draw(Painter &p, const PaintContext &context) const {
 
 	if (isHidden()) {
 		return;
+	}
+
+	if (blacklistCollapsed()) {
+		paintBlacklistCollapsed(p, context, g);
+		return;
+	}
+	if (blacklistExpandedNoticeShown()) {
+		paintBlacklistExpandedNotice(
+			p,
+			context,
+			blacklistExpandedNoticeGeometry(g));
 	}
 
 	const auto entry = logEntryOriginal();
@@ -3091,6 +3273,13 @@ PointState Message::pointState(QPoint point) const {
 	if (g.width() < 1 || isHidden()) {
 		return PointState::Outside;
 	}
+	if (blacklistCollapsed()) {
+		return g.contains(point) ? PointState::Inside : PointState::Outside;
+	}
+	if (blacklistExpandedNoticeShown()
+		&& blacklistExpandedNoticeGeometry(g).contains(point)) {
+		return PointState::Inside;
+	}
 
 	const auto media = this->media();
 	const auto item = data();
@@ -3726,6 +3915,20 @@ TextState Message::textState(
 	if (const auto service = Get<ServicePreMessage>()) {
 		result.link = service->textState(point, request, g);
 		if (result.link) {
+			return result;
+		}
+	}
+
+	if (blacklistCollapsed()) {
+		if (g.contains(point)) {
+			result.link = blacklistToggleLink();
+		}
+		return result;
+	}
+	if (blacklistExpandedNoticeShown()) {
+		const auto notice = blacklistExpandedNoticeGeometry(g);
+		if (blacklistHideAgainGeometry(notice).contains(point)) {
+			result.link = blacklistHideAgainLink();
 			return result;
 		}
 	}
@@ -5277,6 +5480,8 @@ void Message::refreshDataIdHook() {
 	if (base::take(_fastReplyLink)) {
 		_fastReplyLink = fastReplyLink();
 	}
+	_blacklistToggleLink = nullptr;
+	_blacklistHideAgainLink = nullptr;
 	if (_viewButton) {
 		_viewButton = nullptr;
 		updateViewButtonExistence();
@@ -6171,6 +6376,10 @@ bool Message::isCommentsRootView() const {
 }
 
 QRect Message::countGeometry() const {
+	if (blacklistCollapsed()) {
+		return blacklistCollapsedGeometry();
+	}
+
 	const auto item = data();
 	const auto centeredView = item->isFakeAboutView()
 		|| isCommentsRootView();
@@ -6285,6 +6494,12 @@ Ui::BubbleRounding Message::countBubbleRounding() const {
 int Message::resizeContentGetHeight(int newWidth) {
 	if (isHidden()) {
 		return marginTop() + marginBottom();
+	} else if (blacklistCollapsed()) {
+		return marginTop()
+			+ st::msgServicePadding.top()
+			+ st::msgServiceFont->height
+			+ st::msgServicePadding.bottom()
+			+ marginBottom();
 	} else if (newWidth < st::msgMinWidth) {
 		return height();
 	}

@@ -633,6 +633,8 @@ PRIVATE
     data/data_chat_filters.h
     data/data_local_chat_filters.cpp
     data/data_local_chat_filters.h
+    data/data_message_keyword_blacklist.cpp
+    data/data_message_keyword_blacklist.h
     data/data_chat_participant_status.cpp
     data/data_chat_participant_status.h
     data/data_changes.cpp
@@ -1941,6 +1943,8 @@ PRIVATE
     window/window_main_menu.h
     window/window_main_menu_helpers.cpp
     window/window_main_menu_helpers.h
+    window/window_message_keyword_blacklist.cpp
+    window/window_message_keyword_blacklist.h
     window/window_media_preview.cpp
     window/window_media_preview.h
     window/window_peer_menu.cpp

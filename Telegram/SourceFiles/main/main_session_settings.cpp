@@ -87,6 +87,17 @@ QByteArray SessionSettings::serialize() const {
 		size += sizeof(qint32) * 2
 			+ filter.pinnedPeers.size() * sizeof(quint64);
 	}
+	size += sizeof(qint32);
+	for (const auto &keyword : _messageBlacklistCommonKeywords) {
+		size += Serialize::stringSize(keyword);
+	}
+	size += sizeof(qint32);
+	for (const auto &[peerId, keywords] : _messageBlacklistChannelKeywords) {
+		size += sizeof(quint64) + sizeof(qint32);
+		for (const auto &keyword : keywords) {
+			size += Serialize::stringSize(keyword);
+		}
+	}
 
 	auto result = QByteArray();
 	result.reserve(size);
@@ -199,6 +210,18 @@ QByteArray SessionSettings::serialize() const {
 				stream << SerializePeerId(peerId);
 			}
 		}
+		stream << qint32(_messageBlacklistCommonKeywords.size());
+		for (const auto &keyword : _messageBlacklistCommonKeywords) {
+			stream << keyword;
+		}
+		stream << qint32(_messageBlacklistChannelKeywords.size());
+		for (const auto &[peerId, keywords] : _messageBlacklistChannelKeywords) {
+			stream << SerializePeerId(peerId);
+			stream << qint32(keywords.size());
+			for (const auto &keyword : keywords) {
+				stream << keyword;
+			}
+		}
 	}
 
 	Ensures(result.size() == size);
@@ -278,6 +301,9 @@ void SessionSettings::addFromSerialized(const QByteArray &serialized) {
 	qint32 nextLocalChatFilterId = _nextLocalChatFilterId;
 	std::vector<Data::LocalChatFilter> localChatFilters;
 	std::vector<PeerId> localChatFilterAllPinnedPeers;
+	std::vector<QString> messageBlacklistCommonKeywords;
+	base::flat_map<PeerId, std::vector<QString>>
+		messageBlacklistChannelKeywords;
 
 	stream >> versionTag;
 	if (versionTag == kVersionTag) {
@@ -833,6 +859,77 @@ void SessionSettings::addFromSerialized(const QByteArray &serialized) {
 			}
 		}
 	}
+	if (!stream.atEnd()) {
+		auto count = qint32(0);
+		stream >> count;
+		if (stream.status() == QDataStream::Ok) {
+			if (count < 0) {
+				LOG(("App Error: "
+					"Bad data for SessionSettings::addFromSerialized()"));
+				return;
+			}
+			messageBlacklistCommonKeywords.reserve(count);
+			for (auto i = 0; i != count; ++i) {
+				QString keyword;
+				stream >> keyword;
+				if (stream.status() != QDataStream::Ok) {
+					LOG(("App Error: "
+						"Bad data for SessionSettings::addFromSerialized()"));
+					return;
+				}
+				if (!keyword.isEmpty()) {
+					messageBlacklistCommonKeywords.push_back(
+						std::move(keyword));
+				}
+			}
+		}
+	}
+	if (!stream.atEnd()) {
+		auto count = qint32(0);
+		stream >> count;
+		if (stream.status() == QDataStream::Ok) {
+			if (count < 0) {
+				LOG(("App Error: "
+					"Bad data for SessionSettings::addFromSerialized()"));
+				return;
+			}
+			for (auto i = 0; i != count; ++i) {
+				auto peerId = quint64();
+				auto keywordsCount = qint32(0);
+				stream >> peerId;
+				stream >> keywordsCount;
+				if (stream.status() != QDataStream::Ok) {
+					LOG(("App Error: "
+						"Bad data for SessionSettings::addFromSerialized()"));
+					return;
+				}
+				if (keywordsCount < 0) {
+					LOG(("App Error: "
+						"Bad data for SessionSettings::addFromSerialized()"));
+					return;
+				}
+				auto keywords = std::vector<QString>();
+				keywords.reserve(keywordsCount);
+				for (auto j = 0; j != keywordsCount; ++j) {
+					QString keyword;
+					stream >> keyword;
+					if (stream.status() != QDataStream::Ok) {
+						LOG(("App Error: "
+							"Bad data for SessionSettings::addFromSerialized()"));
+						return;
+					}
+					if (!keyword.isEmpty()) {
+						keywords.push_back(std::move(keyword));
+					}
+				}
+				if (!keywords.empty()) {
+					messageBlacklistChannelKeywords.emplace(
+						DeserializePeerId(peerId),
+						std::move(keywords));
+				}
+			}
+		}
+	}
 	if (stream.status() != QDataStream::Ok) {
 		LOG(("App Error: "
 			"Bad data for SessionSettings::addFromSerialized()"));
@@ -903,6 +1000,10 @@ void SessionSettings::addFromSerialized(const QByteArray &serialized) {
 	_nextLocalChatFilterId = std::max(nextLocalChatFilterId, qint32(1));
 	_localChatFilters = std::move(localChatFilters);
 	_localChatFilterAllPinnedPeers = std::move(localChatFilterAllPinnedPeers);
+	_messageBlacklistCommonKeywords = std::move(
+		messageBlacklistCommonKeywords);
+	_messageBlacklistChannelKeywords = std::move(
+		messageBlacklistChannelKeywords);
 
 	if (version < 2) {
 		app.setLastSeenWarningSeen(appLastSeenWarningSeen == 1);

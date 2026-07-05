@@ -66,6 +66,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "data/data_replies_list.h"
 #include "data/data_chat_filters.h"
 #include "data/data_local_chat_filters.h"
+#include "data/data_message_keyword_blacklist.h"
 #include "dialogs/dialogs_entry.h"
 #include "dialogs/dialogs_row.h"
 #include "base/options.h"
@@ -252,6 +253,7 @@ Session::Session(not_null<Main::Session*> session)
 , _aiComposeTones(std::make_unique<AiComposeTones>(session))
 , _chatsFilters(std::make_unique<ChatFilters>(this))
 , _localChatFilters(std::make_unique<LocalChatFilters>(this))
+, _messageKeywordBlacklist(std::make_unique<MessageKeywordBlacklist>(this))
 , _cloudThemes(std::make_unique<CloudThemes>(session))
 , _sendActionManager(std::make_unique<SendActionManager>())
 , _streaming(std::make_unique<Streaming>(this))
@@ -1892,6 +1894,7 @@ rpl::producer<not_null<const ViewElement*>> Session::viewLayoutChanged() const {
 }
 
 void Session::notifyNewItemAdded(not_null<HistoryItem*> item) {
+	messageKeywordBlacklist().track(item);
 	_newItemAdded.fire_copy(item);
 }
 
@@ -1985,6 +1988,9 @@ void Session::notifyItemIdChange(IdChange event) {
 		event.newId.peer,
 		event.oldId,
 		event.newId.msg);
+	messageKeywordBlacklist().updateItemId(
+		FullMsgId(event.newId.peer, event.oldId),
+		event.newId);
 
 	_itemIdChanges.fire_copy(event);
 
@@ -2113,6 +2119,7 @@ rpl::producer<not_null<const HistoryItem*>> Session::itemViewRefreshRequest() co
 }
 
 void Session::notifyItemDataChange(not_null<HistoryItem*> item) {
+	messageKeywordBlacklist().track(item);
 	_itemDataChanges.fire_copy(item);
 }
 
@@ -2129,6 +2136,7 @@ rpl::producer<ReactionsRemoved> Session::reactionsRemoved() const {
 }
 
 void Session::requestItemTextRefresh(not_null<HistoryItem*> item) {
+	messageKeywordBlacklist().track(item);
 	const auto call = [&](not_null<HistoryItem*> item) {
 		enumerateItemViews(item, [&](not_null<ViewElement*> view) {
 			view->itemTextUpdated();
@@ -2887,6 +2895,7 @@ void Session::registerMessage(not_null<HistoryItem*> item) {
 	if (!peerIsChannel(peerId) && IsServerMsgId(itemId)) {
 		_nonChannelMessages.emplace(itemId, item);
 	}
+	messageKeywordBlacklist().track(item);
 }
 
 void Session::registerMessageTTL(TimeId when, not_null<HistoryItem*> item) {
@@ -3072,6 +3081,7 @@ void Session::removeDependencyMessage(not_null<HistoryItem*> item) {
 void Session::unregisterMessage(not_null<HistoryItem*> item) {
 	const auto peerId = item->history()->peer->id;
 	const auto itemId = item->id;
+	messageKeywordBlacklist().untrack(item);
 	_itemRemoved.fire_copy(item);
 	if (item->hasPossibleRestrictions()) {
 		_possiblyRestricted.remove(item);
@@ -3137,6 +3147,15 @@ HistoryItem *Session::message(
 
 HistoryItem *Session::message(FullMsgId itemId) const {
 	return message(itemId.peer, itemId.msg);
+}
+
+void Session::enumerateLoadedMessages(
+		Fn<void(not_null<HistoryItem*>)> callback) const {
+	for (const auto &[peerId, list] : _messages) {
+		for (const auto &[msgId, item] : list) {
+			callback(item);
+		}
+	}
 }
 
 void Session::removeReactionsFromParticipant(

@@ -24,6 +24,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "data/data_document_media.h"
 #include "data/data_saved_sublist.h"
 #include "data/data_session.h"
+#include "data/data_message_keyword_blacklist.h"
 #include "data/data_channel.h"
 #include "data/data_forum_topic.h"
 #include "data/data_user.h"
@@ -305,6 +306,9 @@ System::SkipState System::skipNotification(
 	if (!thread
 		|| !thread->currentNotification()
 		|| (messageType && item->skipNotification())
+		|| (messageType
+			&& item->history()->owner().messageKeywordBlacklist().matches(
+				item))
 		|| (type == Data::ItemNotificationType::Reaction
 			&& skipSentNotification(item, _sentReactionNotifications))
 		|| (type == Data::ItemNotificationType::PollVote

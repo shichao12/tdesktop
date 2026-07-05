@@ -81,6 +81,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "history/view/history_view_schedule_box.h"
 #include "iv/editor/iv_editor_session.h"
 #include "window/window_separate_id.h"
+#include "window/window_message_keyword_blacklist.h"
 #include "window/window_session_controller.h"
 #include "window/window_controller.h"
 #include "settings/sections/settings_advanced.h"
@@ -367,6 +368,7 @@ private:
 	void addStoryArchive();
 	void addNewWindow(bool addSeparator = true);
 	void addToggleFolder();
+	void addMessageBlacklist();
 	void addToggleUnreadMark();
 	void addToggleArchive();
 	void addClearHistory();
@@ -747,6 +749,23 @@ void Filler::addToggleFolder() {
 		},
 		.submenuSt = &st::foldersMenu,
 	});
+}
+
+void Filler::addMessageBlacklist() {
+	if (_topic || _sublist || !_peer || !_peer->asBroadcast()) {
+		return;
+	}
+	const auto controller = _controller;
+	const auto peer = _peer;
+	_addAction(tr::lng_message_blacklist_view_channel(tr::now), [=] {
+		ShowMessageKeywordBlacklistItemsBox(controller, peer);
+	}, &st::menuIconShowInChat);
+	_addAction(tr::lng_message_blacklist_manage_channel(tr::now), [=] {
+		ShowMessageKeywordBlacklistKeywordsBox(controller, peer);
+	}, &st::menuIconTagFilter);
+	_addAction(tr::lng_message_blacklist_manage_common(tr::now), [=] {
+		ShowMessageKeywordBlacklistKeywordsBox(controller, nullptr);
+	}, &st::menuIconTagFilter);
 }
 
 void Filler::addToggleUnreadMark() {
@@ -1842,6 +1861,7 @@ void Filler::fillContextMenuActions() {
 	addToggleUnreadMark();
 	addToggleTopicClosed();
 	addToggleFolder();
+	addMessageBlacklist();
 	if (const auto user = _peer->asUser()) {
 		if (!user->isContact()) {
 			addBlockUser();
@@ -1860,6 +1880,7 @@ void Filler::fillHistoryActions() {
 	addViewAsTopics();
 	addManageChat();
 	addStoryArchive();
+	addMessageBlacklist();
 	addSupportInfo();
 	addBoostChat();
 	addCreatePoll();
@@ -1887,6 +1908,7 @@ void Filler::fillProfileActions() {
 	addSendGift();
 	addViewStatistics();
 	addStoryArchive();
+	addMessageBlacklist();
 	addManageChat();
 	addSetPersonalChannel();
 	addTopicLink();

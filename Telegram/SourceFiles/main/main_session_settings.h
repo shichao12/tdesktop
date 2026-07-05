@@ -161,6 +161,21 @@ public:
 	void setLocalChatFilterAllPinnedPeers(std::vector<PeerId> peers) {
 		_localChatFilterAllPinnedPeers = std::move(peers);
 	}
+	[[nodiscard]] const std::vector<QString> &messageBlacklistCommonKeywords(
+			) const {
+		return _messageBlacklistCommonKeywords;
+	}
+	void setMessageBlacklistCommonKeywords(std::vector<QString> keywords) {
+		_messageBlacklistCommonKeywords = std::move(keywords);
+	}
+	[[nodiscard]] const base::flat_map<PeerId, std::vector<QString>>
+		&messageBlacklistChannelKeywords() const {
+		return _messageBlacklistChannelKeywords;
+	}
+	void setMessageBlacklistChannelKeywords(
+			base::flat_map<PeerId, std::vector<QString>> keywords) {
+		_messageBlacklistChannelKeywords = std::move(keywords);
+	}
 
 	[[nodiscard]] bool photoEditorHintShown() const;
 	void incrementPhotoEditorHintShown();
@@ -257,6 +272,9 @@ private:
 	int _nextLocalChatFilterId = 1;
 	std::vector<Data::LocalChatFilter> _localChatFilters;
 	std::vector<PeerId> _localChatFilterAllPinnedPeers;
+	std::vector<QString> _messageBlacklistCommonKeywords;
+	base::flat_map<PeerId, std::vector<QString>>
+		_messageBlacklistChannelKeywords;
 	int _photoEditorHintShowsCount = 0;
 	int _disableSharingBoxShowsCount = 0;
 	std::vector<TimeId> _mutePeriods;

@@ -65,6 +65,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "window/themes/window_theme.h"
 #include "window/window_controller.h"
 #include "window/window_main_menu_helpers.h"
+#include "window/window_message_keyword_blacklist.h"
 #include "window/window_peer_menu.h"
 #include "window/window_session_controller.h"
 #include "styles/style_chat.h" // popupMenuExpandedSeparator
@@ -712,6 +713,12 @@ void MainMenu::setupMenu() {
 			{ &st::menuIconSavedMessages }
 		)->setClickedCallback([=] {
 			controller->showPeerHistory(controller->session().user());
+		});
+		addAction(
+			tr::lng_message_blacklist_title(),
+			{ &st::menuIconTagFilter }
+		)->setClickedCallback([=] {
+			ShowMessageKeywordBlacklistItemsBox(controller);
 		});
 	} else {
 		addAction(

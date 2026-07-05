@@ -62,6 +62,7 @@ class ForumIcons;
 class AiComposeTones;
 class ChatFilters;
 class LocalChatFilters;
+class MessageKeywordBlacklist;
 class CloudThemes;
 class Streaming;
 class MediaRotation;
@@ -195,6 +196,9 @@ public:
 	}
 	[[nodiscard]] LocalChatFilters &localChatFilters() const {
 		return *_localChatFilters;
+	}
+	[[nodiscard]] MessageKeywordBlacklist &messageKeywordBlacklist() const {
+		return *_messageKeywordBlacklist;
 	}
 	[[nodiscard]] ShortcutMessages &shortcutMessages() const {
 		return *_shortcutMessages;
@@ -613,6 +617,8 @@ public:
 		not_null<const PeerData*> peer,
 		MsgId itemId) const;
 	[[nodiscard]] HistoryItem *message(FullMsgId itemId) const;
+	void enumerateLoadedMessages(
+		Fn<void(not_null<HistoryItem*>)> callback) const;
 
 	[[nodiscard]] HistoryItem *nonChannelMessage(MsgId itemId) const;
 
@@ -1387,6 +1393,7 @@ private:
 	const std::unique_ptr<AiComposeTones> _aiComposeTones;
 	const std::unique_ptr<ChatFilters> _chatsFilters;
 	const std::unique_ptr<LocalChatFilters> _localChatFilters;
+	const std::unique_ptr<MessageKeywordBlacklist> _messageKeywordBlacklist;
 	const std::unique_ptr<CloudThemes> _cloudThemes;
 	const std::unique_ptr<SendActionManager> _sendActionManager;
 	const std::unique_ptr<Streaming> _streaming;

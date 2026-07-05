@@ -423,6 +423,23 @@ private:
 		StateRequest request) const;
 
 	void updateMediaInBubbleState();
+	[[nodiscard]] bool blacklistCollapsed() const;
+	[[nodiscard]] bool blacklistExpandedNoticeShown() const;
+	[[nodiscard]] QRect blacklistCollapsedGeometry() const;
+	[[nodiscard]] int blacklistExpandedNoticeHeight() const;
+	[[nodiscard]] QRect blacklistExpandedNoticeGeometry(
+		QRect messageGeometry) const;
+	[[nodiscard]] QRect blacklistHideAgainGeometry(QRect geometry) const;
+	void paintBlacklistCollapsed(
+		Painter &p,
+		const PaintContext &context,
+		QRect geometry) const;
+	void paintBlacklistExpandedNotice(
+		Painter &p,
+		const PaintContext &context,
+		QRect geometry) const;
+	[[nodiscard]] ClickHandlerPtr blacklistToggleLink() const;
+	[[nodiscard]] ClickHandlerPtr blacklistHideAgainLink() const;
 	QRect countGeometry() const;
 	[[nodiscard]] Ui::BubbleRounding countMessageRounding() const;
 	[[nodiscard]] Ui::BubbleRounding countBubbleRounding(
@@ -504,6 +521,8 @@ private:
 
 	mutable std::unique_ptr<RightAction> _rightAction;
 	mutable ClickHandlerPtr _fastReplyLink;
+	mutable ClickHandlerPtr _blacklistToggleLink;
+	mutable ClickHandlerPtr _blacklistHideAgainLink;
 	mutable std::unique_ptr<ViewButton> _viewButton;
 	std::unique_ptr<TopicButton> _topicButton;
 	mutable std::unique_ptr<LinkRipple> _linkRipple;

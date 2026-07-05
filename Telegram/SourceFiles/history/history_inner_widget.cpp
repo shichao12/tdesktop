@@ -14,6 +14,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "core/click_handler_types.h"
 #include "core/phone_click_handler.h"
 #include "data/data_chat_participant_status.h"
+#include "data/data_message_keyword_blacklist.h"
 #include "history/history_item_helpers.h"
 #include "history/view/controls/history_view_forward_panel.h"
 #include "history/view/controls/history_view_draft_options.h"
@@ -25,6 +26,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "history/view/reactions/history_view_reactions_button.h"
 #include "history/view/reactions/history_view_reactions_selector.h"
 #include "history/view/history_view_about_view.h"
+#include "history/view/history_view_blacklist_menu_helper.h"
 #include "history/view/history_view_drag.h"
 #include "history/view/history_view_message.h"
 #include "history/view/history_view_service_message.h"
@@ -3270,6 +3272,22 @@ void HistoryInner::showContextMenu(QContextMenuEvent *e, bool showFromTouch) {
 						: tr::lng_context_copy_selected(tr::now)),
 					[=] { copySelectedText(); },
 					&st::menuIconCopy);
+				if (isUponSelected == 1) {
+					const auto keyword = HistoryView::BlacklistKeywordFromSelection(
+						selectedText);
+					if (!keyword.isEmpty()) {
+						_menu->addAction(
+							tr::lng_message_blacklist_add_text_context(tr::now),
+							[=] {
+								auto &data = _controller->session().data();
+								auto &blacklist = data.messageKeywordBlacklist();
+								auto keywords = blacklist.commonKeywords();
+								keywords.push_back(keyword);
+								blacklist.setCommonKeywords(std::move(keywords));
+							},
+							&st::menuIconBlock);
+					}
+				}
 			}
 			if (item && !Ui::SkipTranslate(selectedText.rich)) {
 				const auto peer = item->history()->peer;
@@ -3413,6 +3431,22 @@ void HistoryInner::showContextMenu(QContextMenuEvent *e, bool showFromTouch) {
 						: tr::lng_context_copy_selected(tr::now)),
 					[=] { copySelectedText(); },
 					&st::menuIconCopy);
+				if (isUponSelected == 1) {
+					const auto keyword = HistoryView::BlacklistKeywordFromSelection(
+						selectedText);
+					if (!keyword.isEmpty()) {
+						_menu->addAction(
+							tr::lng_message_blacklist_add_text_context(tr::now),
+							[=] {
+								auto &data = _controller->session().data();
+								auto &blacklist = data.messageKeywordBlacklist();
+								auto keywords = blacklist.commonKeywords();
+								keywords.push_back(keyword);
+								blacklist.setCommonKeywords(std::move(keywords));
+							},
+							&st::menuIconBlock);
+					}
+				}
 			}
 			if (item && !Ui::SkipTranslate(selectedText.rich)) {
 				const auto peer = item->history()->peer;
@@ -3561,6 +3595,19 @@ void HistoryInner::showContextMenu(QContextMenuEvent *e, bool showFromTouch) {
 					QGuiApplication::clipboard()->setText(text);
 				},
 				&st::menuIconCopy);
+			const auto blacklistLink = HistoryView::BlacklistLinkFromHandler(link);
+			if (!blacklistLink.isEmpty()) {
+				_menu->addAction(
+					tr::lng_message_blacklist_add_link_context(tr::now),
+					[=] {
+						auto &data = _controller->session().data();
+						auto &blacklist = data.messageKeywordBlacklist();
+						auto links = blacklist.commonLinks();
+						links.push_back(blacklistLink);
+						blacklist.setCommonLinks(std::move(links));
+					},
+					&st::menuIconLink);
+			}
 		} else if (item && item->hasDirectLink() && isUponSelected != 2 && isUponSelected != -2) {
 			_menu->addAction(item->history()->peer->isMegagroup() ? tr::lng_context_copy_message_link(tr::now) : tr::lng_context_copy_post_link(tr::now), [=] {
 				HistoryView::CopyPostLink(controller, itemId, HistoryView::Context::History);

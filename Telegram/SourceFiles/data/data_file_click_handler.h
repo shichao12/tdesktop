@@ -125,6 +125,10 @@ public:
 		not_null<DocumentData*> document,
 		FullMsgId context = FullMsgId());
 
+	QString copyToClipboardText() const override;
+	QString copyToClipboardContextItemText() const override;
+	TextEntity getTextEntity() const override;
+
 protected:
 	void onClickImpl() const override;
 

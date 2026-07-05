@@ -746,6 +746,13 @@ QString ReplyMarkupClickHandler::copyToClipboardContextItemText() const {
 	return button ? tr::lng_context_copy_link(tr::now) : QString();
 }
 
+auto ReplyMarkupClickHandler::getTextEntity() const -> TextEntity {
+	const auto button = getUrlButton();
+	return button
+		? TextEntity{ EntityType::CustomUrl, QString::fromUtf8(button->data) }
+		: TextEntity();
+}
+
 // Finds the corresponding button in the items markup struct.
 // If the button is not found it returns nullptr.
 // Note: it is possible that we will point to the different button

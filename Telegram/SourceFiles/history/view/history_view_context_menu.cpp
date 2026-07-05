@@ -19,6 +19,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "api/api_toggling_media.h" // Api::ToggleFavedSticker
 #include "base/qt/qt_key_modifiers.h"
 #include "base/unixtime.h"
+#include "history/view/history_view_blacklist_menu_helper.h"
 #include "history/view/history_view_list_widget.h"
 #include "history/view/history_view_cursor_state.h"
 #include "history/history.h"
@@ -83,6 +84,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "data/data_chat.h"
 #include "data/data_file_click_handler.h"
 #include "data/data_message_reactions.h"
+#include "data/data_message_keyword_blacklist.h"
 #include "data/data_user.h"
 #include "data/stickers/data_custom_emoji.h"
 #include "chat_helpers/message_field.h" // FactcheckFieldIniter.
@@ -1091,6 +1093,29 @@ void AddCopyLinkAction(
 		&st::menuIconCopy);
 }
 
+void AddBlacklistLinkAction(
+		not_null<Ui::PopupMenu*> menu,
+		const ClickHandlerPtr &link,
+		not_null<Window::SessionController*> controller) {
+	if (!link || link->copyToClipboardContextItemText().isEmpty()) {
+		return;
+	}
+	const auto blacklistLink = BlacklistLinkFromHandler(link);
+	if (blacklistLink.isEmpty()) {
+		return;
+	}
+	menu->addAction(
+		tr::lng_message_blacklist_add_link_context(tr::now),
+		[=] {
+			auto &data = controller->session().data();
+			auto &blacklist = data.messageKeywordBlacklist();
+			auto links = blacklist.commonLinks();
+			links.push_back(blacklistLink);
+			blacklist.setCommonLinks(std::move(links));
+		},
+		&st::menuIconLink);
+}
+
 void EditTagBox(
 		not_null<Ui::GenericBox*> box,
 		not_null<Window::SessionController*> controller,
@@ -1460,6 +1485,7 @@ void FillContextMenuItems(
 	if (request.overSelection
 		&& !list->hasCopyRestrictionForSelected()
 		&& !list->getSelectedText().empty()) {
+		const auto selectedText = list->getSelectedText();
 		const auto text = request.selectedItems.empty()
 			? tr::lng_context_copy_selected(tr::now)
 			: tr::lng_context_copy_selected_items(tr::now);
@@ -1468,6 +1494,21 @@ void FillContextMenuItems(
 				TextUtilities::SetClipboardText(list->getSelectedText());
 			}
 		}, &st::menuIconCopy);
+		if (request.selectedItems.empty()) {
+			const auto keyword = BlacklistKeywordFromSelection(selectedText);
+			if (!keyword.isEmpty()) {
+				result->addAction(
+					tr::lng_message_blacklist_add_text_context(tr::now),
+					[=] {
+						auto &data = list->controller()->session().data();
+						auto &blacklist = data.messageKeywordBlacklist();
+						auto keywords = blacklist.commonKeywords();
+						keywords.push_back(keyword);
+						blacklist.setCommonKeywords(std::move(keywords));
+					},
+					&st::menuIconBlock);
+			}
+		}
 	}
 	if (request.overSelection
 		&& !Ui::SkipTranslate(list->getSelectedText().rich)) {
@@ -1548,6 +1589,7 @@ void FillContextMenuItems(
 	}
 
 	AddCopyLinkAction(result, link);
+	AddBlacklistLinkAction(result, link, list->controller());
 	AddMessageActions(result, request, list);
 
 	const auto wasAmount = result->actions().size();

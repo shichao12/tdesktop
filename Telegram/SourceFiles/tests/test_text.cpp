@@ -9,8 +9,11 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 #include "base/invoke_queued.h"
 #include "base/integration.h"
+#include "history/view/history_view_blacklist_menu_helper.h"
 #include "ui/effects/animations.h"
 #include "ui/ui_utility.h"
+#include "ui/basic_click_handlers.h"
+#include "ui/click_handler.h"
 #include "ui/style/style_core.h"
 #include "ui/text/text.h"
 #include "ui/text/text_custom_emoji.h"
@@ -44,6 +47,51 @@ namespace {
 		}
 	}
 	return false;
+}
+
+class TestClickHandler final : public ClickHandler {
+public:
+	explicit TestClickHandler(ClickHandler::TextEntity entity)
+	: _entity(std::move(entity)) {
+	}
+
+	void onClick(ClickContext context) const override {
+		(void)context;
+	}
+
+	ClickHandler::TextEntity getTextEntity() const override {
+		return _entity;
+	}
+
+private:
+	ClickHandler::TextEntity _entity;
+
+};
+
+void TestBlacklistLinkFromHandler() {
+	const auto selection = TextForMimeData::Simple(u"  foo\r\n bar  "_q);
+	Expects(
+		HistoryView::BlacklistKeywordFromSelection(selection)
+		== u"foo bar"_q);
+
+	const auto plain = std::make_shared<UrlClickHandler>(
+		u"example.com/path"_q);
+	Expects(
+		HistoryView::BlacklistLinkFromHandler(plain)
+		== u"example.com/path"_q);
+
+	const auto hidden = std::make_shared<TestClickHandler>(
+		ClickHandler::TextEntity{
+			EntityType::CustomUrl,
+			UrlClickHandler::EncodeInternalWrappedUrl(
+				u"https://example.com/landing"_q) });
+	Expects(
+		HistoryView::BlacklistLinkFromHandler(hidden)
+		== u"https://example.com/landing"_q);
+
+	const auto email = std::make_shared<UrlClickHandler>(
+		u"name@example.com"_q);
+	Expects(HistoryView::BlacklistLinkFromHandler(email).isEmpty());
 }
 
 [[nodiscard]] QImage MakeObjectImage(
@@ -362,6 +410,8 @@ QString name() {
 
 void test(not_null<Ui::RpWindow*> window, not_null<Ui::RpWidget*> body) {
 	(void)window;
+
+	TestBlacklistLinkFromHandler();
 
 	const auto formulaEntityData =
 		u"iv-markdown:inline-text-object;formula;copy;tex"_q;

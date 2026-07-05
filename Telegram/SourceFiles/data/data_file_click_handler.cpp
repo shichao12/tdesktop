@@ -44,6 +44,20 @@ void DocumentWrappedClickHandler::onClickImpl() const {
 	_wrapped->onClick({ Qt::LeftButton });
 }
 
+QString DocumentWrappedClickHandler::copyToClipboardText() const {
+	return _wrapped ? _wrapped->copyToClipboardText() : QString();
+}
+
+QString DocumentWrappedClickHandler::copyToClipboardContextItemText() const {
+	return _wrapped
+		? _wrapped->copyToClipboardContextItemText()
+		: QString();
+}
+
+auto DocumentWrappedClickHandler::getTextEntity() const -> TextEntity {
+	return _wrapped ? _wrapped->getTextEntity() : TextEntity();
+}
+
 DocumentClickHandler::DocumentClickHandler(
 	not_null<DocumentData*> document,
 	FullMsgId context)

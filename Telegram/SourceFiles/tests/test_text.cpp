@@ -74,6 +74,19 @@ void TestBlacklistLinkFromHandler() {
 		HistoryView::BlacklistKeywordFromSelection(selection)
 		== u"foo bar"_q);
 
+	const auto links = std::vector<QString>{
+		u"https://Example.com/path/"_q,
+		u"https://other.test"_q,
+	};
+	Expects(HistoryView::BlacklistLinkInList(
+		links,
+		u"https://example.com/path"_q));
+	const auto without = HistoryView::BlacklistLinksWithout(
+		links,
+		u"https://example.com/path"_q);
+	Expects(without.size() == 1);
+	Expects(without.front() == u"https://other.test"_q);
+
 	const auto plain = std::make_shared<UrlClickHandler>(
 		u"example.com/path"_q);
 	Expects(

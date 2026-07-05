@@ -10,11 +10,53 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/basic_click_handlers.h"
 #include "ui/text/text_entity.h"
 
+#include <vector>
+
 namespace HistoryView {
 
 [[nodiscard]] inline QString BlacklistKeywordFromSelection(
 		const TextForMimeData &selection) {
 	return selection.expanded.simplified();
+}
+
+[[nodiscard]] inline QString BlacklistNormalizedLink(QString link) {
+	link = link.trimmed().toCaseFolded();
+	while (link.endsWith('/')) {
+		link.chop(1);
+	}
+	return link;
+}
+
+[[nodiscard]] inline bool BlacklistLinkInList(
+		const std::vector<QString> &links,
+		const QString &link) {
+	const auto normalized = BlacklistNormalizedLink(link);
+	if (normalized.isEmpty()) {
+		return false;
+	}
+	for (const auto &entry : links) {
+		if (BlacklistNormalizedLink(entry) == normalized) {
+			return true;
+		}
+	}
+	return false;
+}
+
+[[nodiscard]] inline std::vector<QString> BlacklistLinksWithout(
+		std::vector<QString> links,
+		const QString &link) {
+	const auto normalized = BlacklistNormalizedLink(link);
+	if (normalized.isEmpty()) {
+		return links;
+	}
+	auto result = std::vector<QString>();
+	result.reserve(links.size());
+	for (auto &entry : links) {
+		if (BlacklistNormalizedLink(entry) != normalized) {
+			result.push_back(std::move(entry));
+		}
+	}
+	return result;
 }
 
 [[nodiscard]] inline QString BlacklistLinkFromHandler(

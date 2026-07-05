@@ -7506,6 +7506,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "lng_message_blacklist_add_link" = "添加链接";
 "lng_message_blacklist_add_text_context" = "加入文字黑名单";
 "lng_message_blacklist_add_link_context" = "加入链接黑名单";
+"lng_message_blacklist_remove_link_context" = "取消加入链接黑名单";
 "lng_message_blacklist_delete_keyword" = "删除关键词";
 "lng_message_blacklist_delete_link" = "删除链接";
 "lng_message_blacklist_no_keywords" = "暂无关键词";

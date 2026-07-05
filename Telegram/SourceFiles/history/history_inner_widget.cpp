@@ -3597,13 +3597,28 @@ void HistoryInner::showContextMenu(QContextMenuEvent *e, bool showFromTouch) {
 				&st::menuIconCopy);
 			const auto blacklistLink = HistoryView::BlacklistLinkFromHandler(link);
 			if (!blacklistLink.isEmpty()) {
+				auto &data = _controller->session().data();
+				auto &blacklist = data.messageKeywordBlacklist();
+				const auto listed = HistoryView::BlacklistLinkInList(
+					blacklist.commonLinks(),
+					blacklistLink);
 				_menu->addAction(
-					tr::lng_message_blacklist_add_link_context(tr::now),
+					listed
+						? tr::lng_message_blacklist_remove_link_context(
+							tr::now)
+						: tr::lng_message_blacklist_add_link_context(
+							tr::now),
 					[=] {
 						auto &data = _controller->session().data();
 						auto &blacklist = data.messageKeywordBlacklist();
 						auto links = blacklist.commonLinks();
-						links.push_back(blacklistLink);
+						if (listed) {
+							links = HistoryView::BlacklistLinksWithout(
+								std::move(links),
+								blacklistLink);
+						} else {
+							links.push_back(blacklistLink);
+						}
 						blacklist.setCommonLinks(std::move(links));
 					},
 					&st::menuIconLink);

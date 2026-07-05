@@ -1104,13 +1104,24 @@ void AddBlacklistLinkAction(
 	if (blacklistLink.isEmpty()) {
 		return;
 	}
+	auto &data = controller->session().data();
+	auto &blacklist = data.messageKeywordBlacklist();
+	const auto listed = BlacklistLinkInList(
+		blacklist.commonLinks(),
+		blacklistLink);
 	menu->addAction(
-		tr::lng_message_blacklist_add_link_context(tr::now),
+		listed
+			? tr::lng_message_blacklist_remove_link_context(tr::now)
+			: tr::lng_message_blacklist_add_link_context(tr::now),
 		[=] {
 			auto &data = controller->session().data();
 			auto &blacklist = data.messageKeywordBlacklist();
 			auto links = blacklist.commonLinks();
-			links.push_back(blacklistLink);
+			if (listed) {
+				links = BlacklistLinksWithout(std::move(links), blacklistLink);
+			} else {
+				links.push_back(blacklistLink);
+			}
 			blacklist.setCommonLinks(std::move(links));
 		},
 		&st::menuIconLink);

@@ -55,6 +55,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "data/data_forum_topic.h"
 #include "data/data_changes.h"
 #include "main/main_session.h"
+#include "main/main_session_settings.h"
 #include "core/application.h"
 #include "core/core_settings.h"
 #include "styles/style_calls.h"
@@ -2085,6 +2086,113 @@ void FastShareMessageToSelf(
 				});
 			}
 		});
+}
+
+void FastShareMessagesToPeer(
+		std::shared_ptr<Main::SessionShow> show,
+		MessageIdsList ids,
+		not_null<PeerData*> peer) {
+	if (ids.empty() || (&peer->session() != &show->session())) {
+		return;
+	}
+	const auto history = show->session().data().history(peer);
+	auto resolved = history->resolveForwardDraft({ .ids = std::move(ids) });
+	if (resolved.items.empty()) {
+		return;
+	}
+	const auto threads = std::vector<not_null<Data::Thread*>>{ history };
+	const auto sendLinksInstead = ranges::any_of(
+		resolved.items,
+		[](not_null<HistoryItem*> item) {
+			return !item->allowsForward();
+		});
+	if (sendLinksInstead
+		&& ranges::all_of(
+			resolved.items,
+			[](not_null<HistoryItem*> item) {
+				return item->hasDirectLink();
+			})) {
+		auto text = TextWithTags();
+		for (const auto item : resolved.items) {
+			if (!text.text.isEmpty()) {
+				text.text.append('\n');
+			}
+			text.text.append(
+				item->history()->session().api().exportDirectMessageLink(
+					item,
+					false,
+					false));
+		}
+		const auto error = GetErrorForSending(
+			threads,
+			{ .text = &text });
+		if (error.error) {
+			show->showBox(MakeSendErrorBox(error, false));
+			return;
+		}
+		auto message = Api::MessageToSend(Api::SendAction(history));
+		message.textWithTags = std::move(text);
+		message.action.clearDraft = false;
+		show->session().api().sendMessage(std::move(message));
+		show->showToast(tr::lng_share_done(tr::now));
+		return;
+	}
+	const auto error = GetErrorForSending(
+		threads,
+		{ .forward = &resolved.items });
+	if (error.error) {
+		show->showBox(MakeSendErrorBox(error, false));
+		return;
+	}
+	const auto count = resolved.items.size();
+	auto sendAction = Api::SendAction(history);
+	sendAction.clearDraft = false;
+	sendAction.generateLocal = false;
+	show->session().api().forwardMessages(
+		std::move(resolved),
+		std::move(sendAction),
+		[=] {
+			auto phrase = rpl::variable<TextWithEntities>(
+				ChatHelpers::ForwardedMessagePhrase({
+					.toCount = 1,
+					.singleMessage = (count == 1),
+					.to1 = peer,
+				})).current();
+			if (!phrase.empty()) {
+				auto config = Ui::Toast::Config{
+					.text = std::move(phrase),
+				};
+				if (peer->isSelf()) {
+					config.filter = ChatHelpers::ForwardedToSavedMessagesFilter(
+						&show->session());
+				}
+				show->showToast(std::move(config));
+			}
+		});
+}
+
+void FastShareMessageToPeer(
+		std::shared_ptr<Main::SessionShow> show,
+		not_null<HistoryItem*> item,
+		not_null<PeerData*> peer) {
+	auto &owner = item->history()->owner();
+	FastShareMessagesToPeer(
+		std::move(show),
+		owner.itemOrItsGroup(item),
+		peer);
+}
+
+std::vector<not_null<PeerData*>> FastShareChannelTargets(
+		not_null<Main::Session*> session) {
+	auto result = std::vector<not_null<PeerData*>>();
+	for (const auto &peerId : session->settings().quickForwardChannelPeerIds()) {
+		const auto peer = session->data().peerLoaded(peerId);
+		const auto user = peer ? peer->asUser() : nullptr;
+		if (user && user->isBot()) {
+			result.push_back(peer);
+		}
+	}
+	return result;
 }
 
 void FastShareMessage(

@@ -461,9 +461,13 @@ private:
 	[[nodiscard]] bool isCommentsRootView() const;
 
 	[[nodiscard]] bool displayFastShare() const;
+	[[nodiscard]] bool displayFastSaveToSelf() const;
 	[[nodiscard]] bool displayGoToOriginal() const;
+	[[nodiscard]] int rightActionButtonSize() const;
+	[[nodiscard]] int rightActionButtonsCount() const;
 	[[nodiscard]] ClickHandlerPtr fastReplyLink() const;
 	[[nodiscard]] ClickHandlerPtr prepareRightActionLink() const;
+	void toggleRightActionButtonRipple(int index, bool pressed);
 
 	void ensureRightAction() const;
 	void refreshTopicButton();

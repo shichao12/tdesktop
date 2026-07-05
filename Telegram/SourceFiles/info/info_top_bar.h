@@ -18,6 +18,8 @@ namespace style {
 struct InfoTopBar;
 } // namespace style
 
+class PeerData;
+
 namespace Dialogs::Stories {
 class List;
 struct Content;
@@ -34,6 +36,7 @@ class FlatLabel;
 class InputField;
 class SearchFieldController;
 class LabelWithNumbers;
+class PopupMenu;
 } // namespace Ui
 
 namespace Info {
@@ -137,6 +140,8 @@ private:
 	void performForward();
 	void performDelete();
 	void performToggleStoryPin();
+	void showQuickForwardMenu();
+	void quickForwardSelectedTo(PeerData *peer);
 
 	void setSearchField(
 		base::unique_qptr<Ui::InputField> field,
@@ -186,6 +191,7 @@ private:
 	QPointer<Ui::FadeWrap<Ui::IconButton>> _toggleStoryInProfile;
 	QPointer<Ui::FadeWrap<Ui::IconButton>> _toggleStoryPin;
 	rpl::event_stream<SelectionAction> _selectionActionRequests;
+	base::unique_qptr<Ui::PopupMenu> _quickForwardMenu;
 
 	QPointer<Ui::FadeWrap<Ui::AbstractButton>> _storiesWrap;
 	QPointer<Dialogs::Stories::List> _stories;

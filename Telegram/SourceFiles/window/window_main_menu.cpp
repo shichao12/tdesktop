@@ -22,8 +22,10 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "data/data_document_media.h"
 #include "data/data_folder.h"
 #include "data/data_group_call.h"
+#include "data/data_peer_values.h"
 #include "data/data_session.h"
 #include "data/data_stories.h"
+#include "data/data_thread.h"
 #include "data/data_user.h"
 #include "info/info_memento.h"
 #include "info/profile/info_profile_badge.h"
@@ -61,6 +63,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/widgets/popup_menu.h"
 #include "ui/widgets/scroll_area.h"
 #include "ui/widgets/shadow.h"
+#include "ui/widgets/labels.h"
 #include "ui/wrap/slide_wrap.h"
 #include "window/themes/window_theme.h"
 #include "window/window_controller.h"
@@ -85,6 +88,134 @@ namespace Window {
 namespace {
 
 constexpr auto kPlayStatusLimit = 2;
+
+void ShowQuickForwardChannelsBox(not_null<SessionController*> controller);
+
+class QuickForwardChannelController final
+	: public ChooseRecipientBoxController {
+public:
+	using ChooseRecipientBoxController::ChooseRecipientBoxController;
+
+protected:
+	void prepareViewHook() override {
+		delegate()->peerListSetTitle(
+			tr::lng_quick_forward_choose_channel());
+	}
+
+};
+
+[[nodiscard]] std::vector<PeerId> QuickForwardChannelPeerIds(
+		not_null<Main::Session*> session) {
+	auto result = std::vector<PeerId>();
+	auto seen = base::flat_set<PeerId>();
+	for (const auto peerId : session->settings().quickForwardChannelPeerIds()) {
+		if (peerId && seen.emplace(peerId).second) {
+			result.push_back(peerId);
+		}
+	}
+	return result;
+}
+
+void SaveQuickForwardChannelPeerIds(
+		not_null<Main::Session*> session,
+		std::vector<PeerId> peerIds) {
+	auto result = std::vector<PeerId>();
+	auto seen = base::flat_set<PeerId>();
+	for (const auto peerId : peerIds) {
+		if (peerId && seen.emplace(peerId).second) {
+			result.push_back(peerId);
+		}
+	}
+	session->settings().setQuickForwardChannelPeerIds(std::move(result));
+	session->saveSettingsDelayed();
+}
+
+void ShowChooseQuickForwardChannelBox(
+		not_null<SessionController*> controller,
+		base::weak_qptr<Ui::GenericBox> parentBox) {
+	const auto session = &controller->session();
+	auto current = base::flat_set<PeerId>();
+	for (const auto peerId : QuickForwardChannelPeerIds(session)) {
+		current.emplace(peerId);
+	}
+	const auto filter = [=](not_null<Data::Thread*> thread) {
+		const auto peer = thread->peer();
+		const auto user = peer->asUser();
+		return user
+			&& user->isBot()
+			&& !current.contains(peer->id);
+	};
+	const auto chosen = [=](not_null<Data::Thread*> thread) {
+		auto list = QuickForwardChannelPeerIds(session);
+		list.push_back(thread->peer()->id);
+		SaveQuickForwardChannelPeerIds(session, std::move(list));
+		if (parentBox) {
+			parentBox->closeBox();
+		}
+		ShowQuickForwardChannelsBox(controller);
+	};
+	auto choose = Box<PeerListBox>(
+		std::make_unique<QuickForwardChannelController>(
+			session,
+			std::move(chosen),
+			std::move(filter)),
+		[=](not_null<PeerListBox*> box) {
+			box->addButton(tr::lng_cancel(), [=] { box->closeBox(); });
+		});
+	controller->show(std::move(choose));
+}
+
+void ShowQuickForwardChannelsBox(not_null<SessionController*> controller) {
+	controller->show(Box([=](not_null<Ui::GenericBox*> box) {
+		box->setTitle(tr::lng_quick_forward_channels_title());
+		const auto layout = box->verticalLayout();
+		const auto add = Settings::AddButtonWithIcon(
+			layout,
+			tr::lng_quick_forward_add_channel(),
+			st::defaultSettingsButton,
+			{ &st::menuIconBot });
+		add->setClickedCallback([=] {
+			ShowChooseQuickForwardChannelBox(controller, base::make_weak(box));
+		});
+
+		auto added = false;
+		for (const auto peerId : QuickForwardChannelPeerIds(&controller->session())) {
+			const auto peer = controller->session().data().peerLoaded(peerId);
+			const auto user = peer ? peer->asUser() : nullptr;
+			if (!user || !user->isBot()) {
+				continue;
+			}
+			added = true;
+			const auto button = Settings::AddButtonWithIcon(
+				layout,
+				tr::lng_quick_forward_remove_peer(
+					lt_peer,
+					rpl::single(peer->shortName())),
+				st::defaultSettingsButton,
+				{ &st::menuIconDelete });
+			button->setClickedCallback([=] {
+				auto list = QuickForwardChannelPeerIds(
+					&controller->session());
+				list.erase(ranges::remove(list, peerId), end(list));
+				SaveQuickForwardChannelPeerIds(
+					&controller->session(),
+					std::move(list));
+				box->closeBox();
+				ShowQuickForwardChannelsBox(controller);
+			});
+		}
+		if (!added) {
+			Ui::AddSkip(layout);
+			layout->add(
+				object_ptr<Ui::FlatLabel>(
+					box,
+					tr::lng_quick_forward_empty(),
+					st::boxLabel),
+				st::boxRowPadding);
+		}
+		box->addButton(tr::lng_close(), [=] { box->closeBox(); });
+	}));
+}
 
 [[nodiscard]] bool CanCheckSpecialEvent() {
 	static const auto result = [] {
@@ -713,6 +844,12 @@ void MainMenu::setupMenu() {
 			{ &st::menuIconSavedMessages }
 		)->setClickedCallback([=] {
 			controller->showPeerHistory(controller->session().user());
+		});
+		addAction(
+			tr::lng_quick_forward_channels_title(),
+			{ &st::menuIconForward }
+		)->setClickedCallback([=] {
+			ShowQuickForwardChannelsBox(controller);
 		});
 		addAction(
 			tr::lng_message_blacklist_title(),

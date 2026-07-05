@@ -306,6 +306,7 @@ private:
 	void saveCancel();
 	void showInFolder();
 	void forwardMedia();
+	void fastForwardMediaTo(PeerData *peer);
 	void deleteMedia();
 	void showMediaOverview();
 	void copyMedia();

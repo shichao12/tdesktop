@@ -27,6 +27,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "data/data_document.h"
 #include "data/data_session.h"
 #include "data/data_stories.h"
+#include "data/data_user.h"
 #include "data/data_file_click_handler.h"
 #include "data/data_file_origin.h"
 #include "data/data_download_manager.h"
@@ -43,6 +44,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "media/stories/media_stories_stealth.h"
 #include "window/window_session_controller.h"
 #include "window/window_peer_menu.h"
+#include "boxes/share_box.h"
 #include "ui/widgets/menu/menu_add_action_callback.h"
 #include "ui/widgets/menu/menu_add_action_callback_factory.h"
 #include "ui/widgets/popup_menu.h"
@@ -1318,6 +1320,25 @@ void ListWidget::showContextMenu(
 					forwardSelected();
 				}),
 				&st::menuIconForward);
+			if (!_controller->storiesPeer()) {
+				_contextMenu->addAction(
+					tr::lng_quick_forward_to_saved(tr::now),
+					crl::guard(this, [this] {
+						fastForwardSelectedTo(session().user().get());
+					}),
+					&st::menuIconSavedMessages);
+				for (const auto peer : FastShareChannelTargets(&session())) {
+					_contextMenu->addAction(
+						tr::lng_quick_forward_to_peer(
+							tr::now,
+							lt_peer,
+							peer->shortName()),
+						crl::guard(this, [=] {
+							fastForwardSelectedTo(peer);
+						}),
+						&st::menuIconBot);
+				}
+			}
 		}
 		if (canDeleteAll()) {
 			_contextMenu->addAction(
@@ -1371,6 +1392,27 @@ void ListWidget::showContextMenu(
 					tr::lng_context_forward_msg(tr::now),
 					crl::guard(this, [=] { forwardItem(globalId); }),
 					&st::menuIconForward);
+				if (!_controller->storiesPeer()) {
+					_contextMenu->addAction(
+						tr::lng_quick_forward_to_saved(tr::now),
+						crl::guard(this, [=] {
+							fastForwardItemTo(
+								globalId,
+								session().user().get());
+						}),
+						&st::menuIconSavedMessages);
+					for (const auto peer : FastShareChannelTargets(&session())) {
+						_contextMenu->addAction(
+							tr::lng_quick_forward_to_peer(
+								tr::now,
+								lt_peer,
+								peer->shortName()),
+							crl::guard(this, [=] {
+								fastForwardItemTo(globalId, peer);
+							}),
+							&st::menuIconBot);
+					}
+				}
 			}
 			if (selectionData.canDelete) {
 				if (_controller->isDownloads()) {
@@ -1481,6 +1523,36 @@ void ListWidget::forwardItems(MessageIdsList &&items) {
 			_controller,
 			std::move(items),
 			std::move(callback)));
+	}
+}
+
+void ListWidget::fastForwardSelectedTo(PeerData *peer) {
+	if (_controller->storiesPeer() || !peer) {
+		return;
+	}
+	if (auto items = collectSelectedIds(); !items.empty()) {
+		FastShareMessagesToPeer(
+			_controller->parentController()->uiShow(),
+			std::move(items),
+			not_null<PeerData*>(peer));
+		clearSelected();
+	}
+}
+
+void ListWidget::fastForwardItemTo(
+		GlobalMsgId globalId,
+		PeerData *peer) {
+	if (_controller->storiesPeer() || !peer) {
+		return;
+	}
+	const auto session = &_controller->session();
+	if (globalId.sessionUniqueId == session->uniqueId()) {
+		if (const auto item = session->data().message(globalId.itemId)) {
+			FastShareMessagesToPeer(
+				_controller->parentController()->uiShow(),
+				{ 1, item->fullId() },
+				not_null<PeerData*>(peer));
+		}
 	}
 }
 

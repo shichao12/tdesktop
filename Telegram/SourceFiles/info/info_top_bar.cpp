@@ -15,10 +15,12 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "storage/storage_shared_media.h"
 #include "boxes/delete_messages_box.h"
 #include "boxes/peer_list_controllers.h"
+#include "boxes/share_box.h"
 #include "main/main_session.h"
 #include "ui/widgets/buttons.h"
 #include "ui/widgets/labels.h"
 #include "ui/widgets/fields/input_field.h"
+#include "ui/widgets/popup_menu.h"
 #include "ui/widgets/shadow.h"
 #include "ui/wrap/fade_wrap.h"
 #include "ui/wrap/padding_wrap.h"
@@ -26,8 +28,11 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "data/data_session.h"
 #include "data/data_channel.h"
 #include "data/data_user.h"
+#include "window/window_session_controller.h"
 #include "styles/style_dialogs.h"
 #include "styles/style_info.h"
+#include "styles/style_layers.h"
+#include "styles/style_menu_icons.h"
 
 namespace Info {
 
@@ -723,12 +728,14 @@ void TopBar::createSelectionControls() {
 	_forward->setDuration(st::infoTopBarDuration);
 	_forward->entity()->setAccessibleName(
 		tr::lng_context_forward_selected(tr::now));
-	_forward->entity()->clicks(
-	) | rpl::map_to(
-		SelectionAction::Forward
-	) | rpl::start_to_stream(
-		_selectionActionRequests,
-		_cancelSelection->lifetime());
+	_forward->entity()->setAcceptBoth();
+	_forward->entity()->addClickHandler([=](Qt::MouseButton button) {
+		if (button == Qt::RightButton) {
+			showQuickForwardMenu();
+		} else {
+			showQuickForwardMenu();
+		}
+	});
 	_forward->entity()->setVisible(_canForward);
 
 	_delete = wrap(Ui::CreateChild<Ui::FadeWrap<Ui::IconButton>>(
@@ -845,6 +852,54 @@ bool TopBar::searchMode() const {
 
 void TopBar::performForward() {
 	_selectionActionRequests.fire(SelectionAction::Forward);
+}
+
+void TopBar::quickForwardSelectedTo(PeerData *peer) {
+	if (!peer) {
+		return;
+	}
+	auto ids = MessageIdsList();
+	const auto sessionId = _navigation->session().uniqueId();
+	for (const auto &item : _selectedItems.list) {
+		if (item.canForward && item.globalId.sessionUniqueId == sessionId) {
+			ids.push_back(item.globalId.itemId);
+		}
+	}
+	if (!ids.empty()) {
+		FastShareMessagesToPeer(
+			_navigation->parentController()->uiShow(),
+			std::move(ids),
+			not_null<PeerData*>(peer));
+		_selectionActionRequests.fire(SelectionAction::Clear);
+	}
+}
+
+void TopBar::showQuickForwardMenu() {
+	if (!_forward || !_canForward) {
+		return;
+	}
+	const auto button = _forward->entity();
+	_quickForwardMenu = base::make_unique_q<Ui::PopupMenu>(
+		button,
+		st::popupMenuWithIcons);
+	_quickForwardMenu->addAction(
+		tr::lng_context_forward_selected(tr::now),
+		[=] { _selectionActionRequests.fire(SelectionAction::Forward); },
+		&st::menuIconForward);
+	_quickForwardMenu->addAction(
+		tr::lng_quick_forward_to_saved(tr::now),
+		[=] { quickForwardSelectedTo(_navigation->session().user().get()); },
+		&st::menuIconSavedMessages);
+	for (const auto peer : FastShareChannelTargets(&_navigation->session())) {
+		_quickForwardMenu->addAction(
+			tr::lng_quick_forward_to_peer(
+				tr::now,
+				lt_peer,
+				peer->shortName()),
+			[=] { quickForwardSelectedTo(peer); },
+			&st::menuIconBot);
+	}
+	_quickForwardMenu->popup(QCursor::pos());
 }
 
 void TopBar::performDelete() {

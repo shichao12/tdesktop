@@ -98,6 +98,8 @@ QByteArray SessionSettings::serialize() const {
 			size += Serialize::stringSize(keyword);
 		}
 	}
+	size += sizeof(qint32)
+		+ _quickForwardChannelPeerIds.size() * sizeof(quint64);
 
 	auto result = QByteArray();
 	result.reserve(size);
@@ -222,6 +224,10 @@ QByteArray SessionSettings::serialize() const {
 				stream << keyword;
 			}
 		}
+		stream << qint32(_quickForwardChannelPeerIds.size());
+		for (const auto &peerId : _quickForwardChannelPeerIds) {
+			stream << SerializePeerId(peerId);
+		}
 	}
 
 	Ensures(result.size() == size);
@@ -304,6 +310,7 @@ void SessionSettings::addFromSerialized(const QByteArray &serialized) {
 	std::vector<QString> messageBlacklistCommonKeywords;
 	base::flat_map<PeerId, std::vector<QString>>
 		messageBlacklistChannelKeywords;
+	std::vector<PeerId> quickForwardChannelPeerIds;
 
 	stream >> versionTag;
 	if (versionTag == kVersionTag) {
@@ -930,6 +937,32 @@ void SessionSettings::addFromSerialized(const QByteArray &serialized) {
 			}
 		}
 	}
+	if (!stream.atEnd()) {
+		auto count = qint32(0);
+		stream >> count;
+		if (stream.status() == QDataStream::Ok) {
+			if (count < 0) {
+				LOG(("App Error: "
+					"Bad data for SessionSettings::addFromSerialized()"));
+				return;
+			}
+			auto seen = base::flat_set<PeerId>();
+			quickForwardChannelPeerIds.reserve(count);
+			for (auto i = 0; i != count; ++i) {
+				auto peerId = quint64();
+				stream >> peerId;
+				if (stream.status() != QDataStream::Ok) {
+					LOG(("App Error: "
+						"Bad data for SessionSettings::addFromSerialized()"));
+					return;
+				}
+				const auto id = DeserializePeerId(peerId);
+				if (id && seen.emplace(id).second) {
+					quickForwardChannelPeerIds.push_back(id);
+				}
+			}
+		}
+	}
 	if (stream.status() != QDataStream::Ok) {
 		LOG(("App Error: "
 			"Bad data for SessionSettings::addFromSerialized()"));
@@ -1004,6 +1037,7 @@ void SessionSettings::addFromSerialized(const QByteArray &serialized) {
 		messageBlacklistCommonKeywords);
 	_messageBlacklistChannelKeywords = std::move(
 		messageBlacklistChannelKeywords);
+	_quickForwardChannelPeerIds = std::move(quickForwardChannelPeerIds);
 
 	if (version < 2) {
 		app.setLastSeenWarningSeen(appLastSeenWarningSeen == 1);

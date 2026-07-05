@@ -483,6 +483,12 @@ public:
 	[[nodiscard]] const style::icon &historyFastShareIcon() const {
 		return _historyFastShareIcon;
 	}
+	[[nodiscard]] const style::icon &historyFastSaveIcon() const {
+		return _historyFastSaveIcon;
+	}
+	[[nodiscard]] const style::icon &historyFastChannelIcon() const {
+		return _historyFastChannelIcon;
+	}
 	[[nodiscard]] const style::icon &historyFastTranscribeIcon() const {
 		return _historyFastTranscribeIcon;
 	}
@@ -686,6 +692,8 @@ private:
 	style::icon _msgBotKbCopyIcon = { Qt::Uninitialized };
 	style::icon _historyFastCommentsIcon = { Qt::Uninitialized };
 	style::icon _historyFastShareIcon = { Qt::Uninitialized };
+	style::icon _historyFastSaveIcon = { Qt::Uninitialized };
+	style::icon _historyFastChannelIcon = { Qt::Uninitialized };
 	style::icon _historyFastMoreIcon = { Qt::Uninitialized };
 	style::icon _historyFastTranscribeIcon = { Qt::Uninitialized };
 	style::icon _historyFastTranscribeLock = { Qt::Uninitialized };

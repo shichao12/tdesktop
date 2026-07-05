@@ -362,6 +362,11 @@ struct SecondRightAction {
 	ClickHandlerPtr link;
 };
 
+struct FastRightActionButton {
+	std::unique_ptr<Ui::RippleAnimation> ripple;
+	ClickHandlerPtr link;
+};
+
 struct BadgePillGeometry {
 	int textWidth = 0;
 	int width = 0;
@@ -447,6 +452,7 @@ struct Message::RightAction {
 	ClickHandlerPtr link;
 	QPoint lastPoint;
 	std::unique_ptr<SecondRightAction> second;
+	std::vector<FastRightActionButton> buttons;
 };
 
 struct Message::LinkRipple {
@@ -3389,13 +3395,23 @@ void Message::clickHandlerPressedChanged(
 	}
 	if (!handler) {
 		return;
-	} else if (_rightAction && (handler == _rightAction->link)) {
+	}
+	if (_rightAction && !_rightAction->buttons.empty()) {
+		for (auto i = 0; i != int(_rightAction->buttons.size()); ++i) {
+			if (handler == _rightAction->buttons[i].link) {
+				toggleRightActionButtonRipple(i, pressed);
+				return;
+			}
+		}
+	}
+	if (_rightAction && (handler == _rightAction->link)) {
 		toggleRightActionRipple(pressed);
 	} else if (_rightAction
 		&& _rightAction->second
 		&& (handler == _rightAction->second->link)) {
 		const auto rightSize = rightActionSize();
 		Assert(rightSize != std::nullopt);
+		const auto secondTop = rightActionButtonSize();
 		if (pressed) {
 			if (!_rightAction->second->ripple) {
 				// Create a ripple.
@@ -3407,7 +3423,8 @@ void Message::clickHandlerPressedChanged(
 							rightSize->width() / 2),
 						[=] { repaint(); });
 			}
-			_rightAction->second->ripple->add(_rightAction->lastPoint);
+			_rightAction->second->ripple->add(
+				_rightAction->lastPoint - QPoint(0, secondTop));
 		} else if (_rightAction->second->ripple) {
 			_rightAction->second->ripple->lastStop();
 		}
@@ -3526,6 +3543,30 @@ void Message::toggleRightActionRipple(bool pressed) {
 		_rightAction->ripple->add(_rightAction->lastPoint);
 	} else if (_rightAction->ripple) {
 		_rightAction->ripple->lastStop();
+	}
+}
+
+void Message::toggleRightActionButtonRipple(int index, bool pressed) {
+	Expects(_rightAction != nullptr);
+	Expects(index >= 0 && index < int(_rightAction->buttons.size()));
+
+	const auto rightSize = rightActionSize();
+	Assert(rightSize != std::nullopt);
+	const auto buttonSize = rightActionButtonSize();
+	auto &button = _rightAction->buttons[index];
+
+	if (pressed) {
+		if (!button.ripple) {
+			const auto size = QSize(rightSize->width(), buttonSize);
+			button.ripple = std::make_unique<Ui::RippleAnimation>(
+				st::defaultRippleAnimation,
+				Ui::RippleAnimation::RoundRectMask(size, size.width() / 2),
+				[=] { repaint(); });
+		}
+		button.ripple->add(
+			_rightAction->lastPoint - QPoint(0, index * buttonSize));
+	} else if (button.ripple) {
+		button.ripple->lastStop();
 	}
 }
 
@@ -5474,7 +5515,12 @@ auto Message::verticalRepaintRange() const -> VerticalRepaintRange {
 }
 
 void Message::refreshDataIdHook() {
-	if (_rightAction && base::take(_rightAction->link)) {
+	if (_rightAction && !_rightAction->buttons.empty()) {
+		for (auto &button : _rightAction->buttons) {
+			button.link = nullptr;
+		}
+		_rightAction->link = prepareRightActionLink();
+	} else if (_rightAction && base::take(_rightAction->link)) {
 		_rightAction->link = rightActionLink(_rightAction->lastPoint);
 	}
 	if (base::take(_fastReplyLink)) {
@@ -5898,6 +5944,10 @@ std::optional<QSize> Message::rightActionSize() const {
 		? ((_rightAction && _rightAction->second)
 			? QSize(st::historyFastCloseSize, st::historyFastCloseSize * 2)
 			: QSize(st::historyFastCloseSize, st::historyFastCloseSize))
+		: displayFastSaveToSelf()
+		? QSize(
+			st::historyFastShareSize,
+			st::historyFastShareSize * rightActionButtonsCount())
 		: (displayFastShare() || displayGoToOriginal())
 		? QSize(st::historyFastShareSize, st::historyFastShareSize)
 		: std::optional<QSize>();
@@ -5906,10 +5956,11 @@ std::optional<QSize> Message::rightActionSize() const {
 bool Message::displayFastShare() const {
 	const auto item = data();
 	const auto peer = item->history()->peer;
-	if (!item->allowsForward()) {
+	if (peer->isChannel()) {
+		return !peer->isMegagroup()
+			&& (item->allowsForward() || item->hasDirectLink());
+	} else if (!item->allowsForward()) {
 		return false;
-	} else if (peer->isChannel()) {
-		return !peer->isMegagroup();
 	} else if (const auto user = peer->asUser()) {
 		if (const auto forwarded = item->Get<HistoryMessageForwarded>()) {
 			return !item->out()
@@ -5923,6 +5974,12 @@ bool Message::displayFastShare() const {
 		}
 	}
 	return false;
+}
+
+bool Message::displayFastSaveToSelf() const {
+	return displayFastShare()
+		&& !isPinnedContext()
+		&& (context() != Context::SavedSublist);
 }
 
 bool Message::displayGoToOriginal() const {
@@ -5939,6 +5996,18 @@ bool Message::displayGoToOriginal() const {
 			&& (context() != Context::Replies);
 	}
 	return false;
+}
+
+int Message::rightActionButtonSize() const {
+	return data()->isSponsored()
+		? st::historyFastCloseSize
+		: st::historyFastShareSize;
+}
+
+int Message::rightActionButtonsCount() const {
+	return displayFastSaveToSelf()
+		? (2 + int(FastShareChannelTargets(&data()->history()->session()).size()))
+		: 1;
 }
 
 void Message::drawRightAction(
@@ -5965,13 +6034,33 @@ void Message::drawRightAction(
 			_rightAction->ripple.reset();
 		}
 	}
-	if (_rightAction->second && _rightAction->second->ripple) {
+	if (!_rightAction->buttons.empty()) {
 		const auto &stm = context.messageStyle();
 		const auto colorOverride = &stm->msgWaveformInactive->c;
+		const auto buttonSize = rightActionButtonSize();
+		for (auto i = 0; i != int(_rightAction->buttons.size()); ++i) {
+			auto &button = _rightAction->buttons[i];
+			if (!button.ripple) {
+				continue;
+			}
+			button.ripple->paint(
+				p,
+				left,
+				top + i * buttonSize,
+				size->width(),
+				colorOverride);
+			if (button.ripple->empty()) {
+				button.ripple.reset();
+			}
+		}
+	} else if (_rightAction->second && _rightAction->second->ripple) {
+		const auto &stm = context.messageStyle();
+		const auto colorOverride = &stm->msgWaveformInactive->c;
+		const auto secondTop = rightActionButtonSize();
 		_rightAction->second->ripple->paint(
 			p,
 			left,
-			top + st::historyFastCloseSize,
+			top + secondTop,
 			size->width(),
 			colorOverride);
 		if (_rightAction->second->ripple->empty()) {
@@ -6015,13 +6104,39 @@ void Message::drawRightAction(
 				views->repliesSmall.text,
 				views->repliesSmall.textWidth);
 		}
+	} else if (!_rightAction->buttons.empty()) {
+		const auto buttonSize = rightActionButtonSize();
+		const auto last = int(_rightAction->buttons.size()) - 1;
+		for (auto i = 0; i <= last; ++i) {
+			const auto rect = QRect(
+				left,
+				top + i * buttonSize,
+				size->width(),
+				buttonSize);
+			const auto &icon = (i == 0)
+				? st->historyFastSaveIcon()
+				: (i == last)
+				? st->historyFastShareIcon()
+				: st->historyFastChannelIcon();
+			icon.paintInCenter(p, rect);
+		}
 	} else if (_rightAction->second) {
-		st->historyFastCloseIcon().paintInCenter(
-			p,
-			QRect(left, top, size->width(), size->width()));
-		st->historyFastMoreIcon().paintInCenter(
-			p,
-			QRect(left, size->width() + top, size->width(), size->width()));
+		const auto buttonSize = rightActionButtonSize();
+		if (displayFastSaveToSelf()) {
+			st->historyFastSaveIcon().paintInCenter(
+				p,
+				QRect(left, top, size->width(), buttonSize));
+			st->historyFastShareIcon().paintInCenter(
+				p,
+				QRect(left, top + buttonSize, size->width(), buttonSize));
+		} else {
+			st->historyFastCloseIcon().paintInCenter(
+				p,
+				QRect(left, top, size->width(), buttonSize));
+			st->historyFastMoreIcon().paintInCenter(
+				p,
+				QRect(left, top + buttonSize, size->width(), buttonSize));
+		}
 	} else {
 		const auto &icon = data()->isSponsored()
 			? st->historyFastCloseIcon()
@@ -6046,8 +6161,15 @@ ClickHandlerPtr Message::rightActionLink(
 	if (pressPoint) {
 		_rightAction->lastPoint = *pressPoint;
 	}
+	if (!_rightAction->buttons.empty()) {
+		const auto index = std::clamp(
+			_rightAction->lastPoint.y() / rightActionButtonSize(),
+			0,
+			int(_rightAction->buttons.size()) - 1);
+		return _rightAction->buttons[index].link;
+	}
 	if (_rightAction->second
-		&& (_rightAction->lastPoint.y() > st::historyFastCloseSize)) {
+		&& (_rightAction->lastPoint.y() >= rightActionButtonSize())) {
 		return _rightAction->second->link;
 	}
 	return _rightAction->link;
@@ -6055,10 +6177,21 @@ ClickHandlerPtr Message::rightActionLink(
 
 void Message::ensureRightAction() const {
 	if (_rightAction) {
+		if (displayFastSaveToSelf()) {
+			const auto count = rightActionButtonsCount();
+			if (int(_rightAction->buttons.size()) != count) {
+				_rightAction->buttons.clear();
+				_rightAction->buttons.resize(count);
+				_rightAction->link = nullptr;
+			}
+		}
 		return;
 	}
 	Assert(rightActionSize().has_value());
 	_rightAction = std::make_unique<RightAction>();
+	if (displayFastSaveToSelf()) {
+		_rightAction->buttons.resize(rightActionButtonsCount());
+	}
 }
 
 ClickHandlerPtr Message::prepareRightActionLink() const {
@@ -6126,8 +6259,32 @@ ClickHandlerPtr Message::prepareRightActionLink() const {
 		}
 	};
 
-	const auto result = std::make_shared<FastShareClickHandler>([=](
-			ClickContext context) {
+	class FastSaveClickHandler : public LambdaClickHandler {
+	public:
+		FastSaveClickHandler(Fn<void(ClickContext)> handler)
+			: LambdaClickHandler(std::move(handler)) {}
+		QString tooltip() const override {
+			return tr::lng_fast_save_to_self_tooltip(tr::now);
+		}
+	};
+
+	class FastForwardToPeerClickHandler : public LambdaClickHandler {
+	public:
+		FastForwardToPeerClickHandler(
+			Fn<void(ClickContext)> handler,
+			QString tooltip)
+		: LambdaClickHandler(std::move(handler))
+		, _tooltip(std::move(tooltip)) {
+		}
+		QString tooltip() const override {
+			return _tooltip;
+		}
+
+	private:
+		QString _tooltip;
+	};
+
+	const auto activate = [=](ClickContext context, PeerData *peer) {
 		const auto controller = ExtractController(context);
 		if (!controller || controller->session().uniqueId() != sessionId) {
 			return;
@@ -6141,15 +6298,82 @@ ClickHandlerPtr Message::prepareRightActionLink() const {
 					savedFromPeer,
 					Window::SectionShow::Way::Forward,
 					savedFromMsgId);
+			} else if (peer) {
+				FastShareMessageToPeer(controller->uiShow(), item, peer);
 			} else if (base::IsCtrlPressed()) {
-				FastShareMessageToSelf(controller->uiShow(), item);
+				FastShareMessageToPeer(
+					controller->uiShow(),
+					item,
+					controller->session().user().get());
 			} else {
 				FastShareMessage(controller, item);
 			}
 		}
-	});
+	};
+	const auto makeShareHandler = [&]() {
+		return std::make_shared<FastShareClickHandler>([=](
+				ClickContext context) {
+			activate(context, nullptr);
+		});
+	};
+	const auto makeSaveHandler = [&]() {
+		return std::make_shared<FastSaveClickHandler>([=](
+				ClickContext context) {
+			activate(context, data()->history()->session().user().get());
+		});
+	};
+	const auto makePeerHandler = [&](not_null<PeerData*> peer) {
+		const auto tooltip = tr::lng_fast_forward_to_peer_tooltip(
+			tr::now,
+			lt_peer,
+			peer->shortName());
+		return std::make_shared<FastForwardToPeerClickHandler>([=](
+				ClickContext context) {
+			activate(context, peer);
+		}, tooltip);
+	};
+	const auto makeQuickHandlers = [&] {
+		const auto targets = FastShareChannelTargets(
+			&data()->history()->session());
+		const auto count = int(targets.size()) + 2;
+		if (int(_rightAction->buttons.size()) != count) {
+			_rightAction->buttons.clear();
+			_rightAction->buttons.resize(count);
+		}
+		_rightAction->buttons[0].link = makeSaveHandler();
+		for (auto i = 0; i != int(targets.size()); ++i) {
+			_rightAction->buttons[i + 1].link = makePeerHandler(targets[i]);
+		}
+		auto share = makeShareHandler();
+		share->setProperty(
+			kFastShareProperty,
+			QVariant::fromValue(true));
+		_rightAction->buttons.back().link = std::move(share);
+		return _rightAction->buttons.front().link;
+	};
+	const auto makeSecondShareHandler = [&]() {
+		auto result = makeShareHandler();
+		result->setProperty(
+			kFastShareProperty,
+			QVariant::fromValue(true));
+		return result;
+	};
+	const auto makeLegacySaveHandler = [&]() {
+		return std::make_shared<FastSaveClickHandler>([=](
+				ClickContext context) {
+			activate(context, data()->history()->session().user().get());
+		});
+	};
 	const auto navigates = data()->externalReply()
 		|| (savedFromPeer && savedFromMsgId);
+	if (displayFastSaveToSelf()) {
+		if (!_rightAction->buttons.empty()) {
+			return makeQuickHandlers();
+		}
+		_rightAction->second->link = makeSecondShareHandler();
+		return makeLegacySaveHandler();
+	}
+	const auto result = makeShareHandler();
 	if (!navigates) {
 		result->setProperty(kFastShareProperty, QVariant::fromValue(true));
 	}

@@ -176,6 +176,13 @@ public:
 			base::flat_map<PeerId, std::vector<QString>> keywords) {
 		_messageBlacklistChannelKeywords = std::move(keywords);
 	}
+	[[nodiscard]] const std::vector<PeerId> &quickForwardChannelPeerIds(
+			) const {
+		return _quickForwardChannelPeerIds;
+	}
+	void setQuickForwardChannelPeerIds(std::vector<PeerId> peerIds) {
+		_quickForwardChannelPeerIds = std::move(peerIds);
+	}
 
 	[[nodiscard]] bool photoEditorHintShown() const;
 	void incrementPhotoEditorHintShown();
@@ -275,6 +282,7 @@ private:
 	std::vector<QString> _messageBlacklistCommonKeywords;
 	base::flat_map<PeerId, std::vector<QString>>
 		_messageBlacklistChannelKeywords;
+	std::vector<PeerId> _quickForwardChannelPeerIds;
 	int _photoEditorHintShowsCount = 0;
 	int _disableSharingBoxShowsCount = 0;
 	std::vector<TimeId> _mutePeriods;

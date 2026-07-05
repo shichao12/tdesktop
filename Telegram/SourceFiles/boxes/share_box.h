@@ -16,6 +16,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "mtproto/sender.h"
 
 class History;
+class PeerData;
 
 namespace style {
 struct MultiSelect;
@@ -74,6 +75,16 @@ struct ShareBoxStyleOverrides {
 void FastShareMessageToSelf(
 	std::shared_ptr<Main::SessionShow> show,
 	not_null<HistoryItem*> item);
+void FastShareMessageToPeer(
+	std::shared_ptr<Main::SessionShow> show,
+	not_null<HistoryItem*> item,
+	not_null<PeerData*> peer);
+void FastShareMessagesToPeer(
+	std::shared_ptr<Main::SessionShow> show,
+	MessageIdsList ids,
+	not_null<PeerData*> peer);
+[[nodiscard]] std::vector<not_null<PeerData*>> FastShareChannelTargets(
+	not_null<Main::Session*> session);
 void FastShareMessage(
 	std::shared_ptr<Main::SessionShow> show,
 	not_null<HistoryItem*> item,

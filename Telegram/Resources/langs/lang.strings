@@ -2924,6 +2924,15 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 "lng_topic_author_badge" = "Topic Creator";
 "lng_fast_reply" = "Reply";
 "lng_fast_share_tooltip" = "Right-click to select a Recent Contact.";
+"lng_fast_save_to_self_tooltip" = "分享到我的收藏";
+"lng_fast_forward_to_peer_tooltip" = "转发到 {peer}";
+"lng_quick_forward_to_saved" = "分享到我的收藏";
+"lng_quick_forward_to_peer" = "转发到 {peer}";
+"lng_quick_forward_channels_title" = "快捷转发机器人";
+"lng_quick_forward_add_channel" = "添加机器人";
+"lng_quick_forward_choose_channel" = "选择机器人";
+"lng_quick_forward_empty" = "暂无快捷转发机器人";
+"lng_quick_forward_remove_peer" = "删除 {peer}";
 "lng_cancel_edit_post_sure" = "Cancel editing?";
 "lng_cancel_edit_post_yes" = "Yes";
 "lng_cancel_edit_post_no" = "No";

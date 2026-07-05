@@ -231,6 +231,8 @@ private:
 	void forwardSelected();
 	void forwardItem(GlobalMsgId globalId);
 	void forwardItems(MessageIdsList &&items);
+	void fastForwardSelectedTo(PeerData *peer);
+	void fastForwardItemTo(GlobalMsgId globalId, PeerData *peer);
 	void deleteSelected();
 	void toggleStoryPinSelected();
 	void toggleStoryInProfileSelected(bool toProfile);

@@ -15,6 +15,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "base/timer_rpl.h"
 #include "lang/lang_keys.h"
 #include "menu/menu_sponsored.h"
+#include "boxes/share_box.h"
 #include "boxes/premium_preview_box.h"
 #include "calls/calls_instance.h"
 #include "core/application.h"
@@ -2139,11 +2140,24 @@ void OverlayWidget::fillContextMenuActions(
 			[=] { showAttachedStickers(); },
 			&st::mediaMenuIconStickers);
 	}
-	if (_message && _message->allowsForward()) {
+	if (_session && _message && _message->allowsForward()) {
 		addAction(
 			tr::lng_mediaview_forward(tr::now),
 			[=] { forwardMedia(); },
 			&st::mediaMenuIconForward);
+		addAction(
+			tr::lng_quick_forward_to_saved(tr::now),
+			[=] { fastForwardMediaTo(_session->user().get()); },
+			&st::mediaMenuIconSavedMessages);
+		for (const auto peer : FastShareChannelTargets(_session)) {
+			addAction(
+				tr::lng_quick_forward_to_peer(
+					tr::now,
+				lt_peer,
+				peer->shortName()),
+				[=] { fastForwardMediaTo(peer); },
+				&st::mediaMenuIconBot);
+		}
 		if (canShareAtTime()) {
 			const auto now = [=] {
 				return tr::lng_mediaview_share_at_time(
@@ -3416,6 +3430,27 @@ void OverlayWidget::forwardMedia() {
 		}
 		Window::ShowForwardMessagesBox(active.front(), { 1, id });
 	}
+}
+
+void OverlayWidget::fastForwardMediaTo(PeerData *peer) {
+	if (!_session || !peer || !_message || !_message->allowsForward()) {
+		return;
+	}
+	const auto id = _message->fullId();
+	if (!id) {
+		return;
+	}
+	const auto window = findWindow();
+	if (!window) {
+		return;
+	}
+	if (!_windowed) {
+		close();
+	}
+	FastShareMessagesToPeer(
+		window->uiShow(),
+		{ 1, id },
+		not_null<PeerData*>(peer));
 }
 
 void OverlayWidget::deleteMedia() {

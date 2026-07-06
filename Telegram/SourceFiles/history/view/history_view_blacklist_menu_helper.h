@@ -19,6 +19,17 @@ namespace HistoryView {
 	return selection.expanded.simplified();
 }
 
+[[nodiscard]] inline QString BlacklistTagFromHandler(
+		const ClickHandlerPtr &link) {
+	if (!link) {
+		return QString();
+	}
+	const auto type = link->getTextEntity().type;
+	return (type == EntityType::Hashtag || type == EntityType::Cashtag)
+		? link->copyToClipboardText().trimmed()
+		: QString();
+}
+
 [[nodiscard]] inline QString BlacklistNormalizedTextLink(QString text) {
 	return text.trimmed().toCaseFolded();
 }

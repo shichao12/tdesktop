@@ -1173,6 +1173,26 @@ void AddBlacklistTextLinkAction(
 		&st::menuIconBlock);
 }
 
+void AddBlacklistTagAction(
+		not_null<Ui::PopupMenu*> menu,
+		const ClickHandlerPtr &link,
+		not_null<Window::SessionController*> controller) {
+	const auto tag = BlacklistTagFromHandler(link);
+	if (tag.isEmpty()) {
+		return;
+	}
+	menu->addAction(
+		tr::lng_message_blacklist_add_text_context(tr::now),
+		[=] {
+			auto &data = controller->session().data();
+			auto &blacklist = data.messageKeywordBlacklist();
+			auto keywords = blacklist.commonKeywords();
+			keywords.push_back(tag);
+			blacklist.setCommonKeywords(std::move(keywords));
+		},
+		&st::menuIconBlock);
+}
+
 void EditTagBox(
 		not_null<Ui::GenericBox*> box,
 		not_null<Window::SessionController*> controller,
@@ -1648,6 +1668,7 @@ void FillContextMenuItems(
 	AddCopyLinkAction(result, link);
 	AddBlacklistLinkAction(result, link, list->controller());
 	AddBlacklistTextLinkAction(result, link, view, list->controller());
+	AddBlacklistTagAction(result, link, list->controller());
 	AddMessageActions(result, request, list);
 
 	const auto wasAmount = result->actions().size();

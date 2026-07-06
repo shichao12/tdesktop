@@ -3655,6 +3655,19 @@ void HistoryInner::showContextMenu(QContextMenuEvent *e, bool showFromTouch) {
 						&st::menuIconBlock);
 				}
 			}
+			const auto blacklistTag = HistoryView::BlacklistTagFromHandler(link);
+			if (!blacklistTag.isEmpty()) {
+				_menu->addAction(
+					tr::lng_message_blacklist_add_text_context(tr::now),
+					[=] {
+						auto &data = _controller->session().data();
+						auto &blacklist = data.messageKeywordBlacklist();
+						auto keywords = blacklist.commonKeywords();
+						keywords.push_back(blacklistTag);
+						blacklist.setCommonKeywords(std::move(keywords));
+					},
+					&st::menuIconBlock);
+			}
 		} else if (item && item->hasDirectLink() && isUponSelected != 2 && isUponSelected != -2) {
 			_menu->addAction(item->history()->peer->isMegagroup() ? tr::lng_context_copy_message_link(tr::now) : tr::lng_context_copy_post_link(tr::now), [=] {
 				HistoryView::CopyPostLink(controller, itemId, HistoryView::Context::History);

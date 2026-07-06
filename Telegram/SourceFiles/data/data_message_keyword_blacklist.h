@@ -73,6 +73,7 @@ private:
 	base::flat_map<PeerId, base::flat_set<MsgId>> _matchedByPeer;
 	base::flat_set<FullMsgId> _expanded;
 	rpl::event_stream<> _changed;
+	rpl::lifetime _lifetime;
 
 };
 

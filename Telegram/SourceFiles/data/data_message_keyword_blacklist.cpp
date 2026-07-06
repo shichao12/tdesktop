@@ -7,12 +7,16 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 */
 #include "data/data_message_keyword_blacklist.h"
 
-#include "data/data_session.h"
+#include "base/qthelp_url.h"
+#include "core/local_url_handlers.h"
+#include "data/data_changes.h"
 #include "data/data_channel.h"
+#include "data/data_session.h"
 #include "history/history.h"
 #include "history/history_item.h"
 #include "main/main_session.h"
 #include "main/main_session_settings.h"
+#include "ui/basic_click_handlers.h"
 
 namespace Data {
 namespace {
@@ -69,6 +73,58 @@ const auto kEmptyKeywords = std::vector<QString>();
 		}
 	}
 	return false;
+}
+
+void RefreshLoadedLinkTexts(not_null<Session*> owner) {
+	owner->enumerateLoadedMessages([&](not_null<HistoryItem*> item) {
+		if (HasBlockedLinkEntities(item->originalText())) {
+			owner->requestItemTextRefresh(item);
+		}
+	});
+}
+
+[[nodiscard]] QString LinkForMatching(
+		const TextWithEntities &text,
+		const EntityInText &entity,
+		int offset,
+		int length) {
+	auto result = (entity.type() == EntityType::Url)
+		? text.text.mid(offset, length)
+		: UrlClickHandler::ExternalUrlFromInternalUrl(entity.data());
+	if (result.isEmpty() && entity.type() == EntityType::CustomUrl) {
+		result = entity.data();
+	}
+	return result.startsWith(u"internal:"_q, Qt::CaseInsensitive)
+		? QString()
+		: result.trimmed();
+}
+
+[[nodiscard]] ChannelData *JoinedChannelFromLink(
+		not_null<Session*> owner,
+		QString link) {
+	if (link.isEmpty()) {
+		return nullptr;
+	}
+	const auto local = Core::TryConvertUrlToLocal(std::move(link));
+	const auto delimiter = local.indexOf('?');
+	if (delimiter <= 0) {
+		return nullptr;
+	}
+	const auto command = local.mid(0, delimiter);
+	const auto params = qthelp::url_parse_params(
+		local.mid(delimiter + 1),
+		qthelp::UrlParamNameTransform::ToLower);
+	auto channel = static_cast<ChannelData*>(nullptr);
+	if (!command.compare(u"tg://resolve"_q, Qt::CaseInsensitive)) {
+		if (const auto peer = owner->peerByUsername(
+				params.value(u"domain"_q))) {
+			channel = peer->asChannel();
+		}
+	} else if (!command.compare(u"tg://privatepost"_q, Qt::CaseInsensitive)) {
+		channel = owner->channelLoaded(
+			ChannelId(params.value(u"channel"_q).toULongLong()));
+	}
+	return (channel && channel->amIn()) ? channel : nullptr;
 }
 
 [[nodiscard]] QString TextForMatching(const TextWithEntities &text) {
@@ -147,6 +203,12 @@ MessageKeywordBlacklist::MessageKeywordBlacklist(not_null<Session*> owner)
 			++i;
 		}
 	}
+	owner->session().changes().peerUpdates(
+		PeerUpdate::Flag::ChannelAmIn
+	) | rpl::on_next([=] {
+		RefreshLoadedLinkTexts(owner);
+		_changed.fire({});
+	}, _lifetime);
 }
 
 MessageKeywordBlacklist::~MessageKeywordBlacklist() = default;
@@ -189,11 +251,7 @@ void MessageKeywordBlacklist::setCommonLinks(std::vector<QString> links) {
 	_commonLinks = std::move(links);
 	_commonLinksNormalized = NormalizeLinkMatches(_commonLinks);
 	save();
-	_owner->enumerateLoadedMessages([&](not_null<HistoryItem*> item) {
-		if (HasBlockedLinkEntities(item->originalText())) {
-			_owner->requestItemTextRefresh(item);
-		}
-	});
+	RefreshLoadedLinkTexts(_owner);
 	_changed.fire({});
 }
 
@@ -205,11 +263,7 @@ void MessageKeywordBlacklist::setCommonTextLinks(std::vector<QString> links) {
 	_commonTextLinks = std::move(links);
 	_commonTextLinksFolded = FoldKeywords(_commonTextLinks);
 	save();
-	_owner->enumerateLoadedMessages([&](not_null<HistoryItem*> item) {
-		if (HasBlockedLinkEntities(item->originalText())) {
-			_owner->requestItemTextRefresh(item);
-		}
-	});
+	RefreshLoadedLinkTexts(_owner);
 	_changed.fire({});
 }
 
@@ -268,9 +322,6 @@ bool MessageKeywordBlacklist::matches(not_null<HistoryItem*> item) const {
 
 std::vector<std::pair<int, int>> MessageKeywordBlacklist::blockedLinkRanges(
 		const TextWithEntities &text) const {
-	if (_commonLinksNormalized.empty() && _commonTextLinksFolded.empty()) {
-		return {};
-	}
 	auto result = std::vector<std::pair<int, int>>();
 	for (const auto &entity : text.entities) {
 		const auto offset = entity.offset();
@@ -283,13 +334,12 @@ std::vector<std::pair<int, int>> MessageKeywordBlacklist::blockedLinkRanges(
 		const auto length = std::min(
 			entity.length(),
 			text.text.size() - offset);
+		const auto link = LinkForMatching(text, entity, offset, length);
 		auto blocked = false;
-		if (!_commonLinksNormalized.empty()) {
-			const auto link = NormalizeLink(
-				(entity.type() == EntityType::Url)
-					? text.text.mid(offset, length)
-					: entity.data());
-			blocked = ranges::contains(_commonLinksNormalized, link);
+		if (!link.isEmpty() && !_commonLinksNormalized.empty()) {
+			blocked = ranges::contains(
+				_commonLinksNormalized,
+				NormalizeLink(link));
 		}
 		if (!blocked
 			&& entity.type() == EntityType::CustomUrl
@@ -298,6 +348,9 @@ std::vector<std::pair<int, int>> MessageKeywordBlacklist::blockedLinkRanges(
 				offset,
 				length).trimmed().toCaseFolded();
 			blocked = ranges::contains(_commonTextLinksFolded, textLink);
+		}
+		if (!blocked) {
+			blocked = JoinedChannelFromLink(_owner, link) != nullptr;
 		}
 		if (blocked) {
 			result.emplace_back(offset, length);

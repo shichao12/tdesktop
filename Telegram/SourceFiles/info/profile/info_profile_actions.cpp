@@ -72,6 +72,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "main/main_session.h"
 #include "menu/menu_mute.h"
 #include "settings/settings_common.h"
+#include "storage/storage_account.h"
 #include "support/support_helper.h"
 #include "ui/boxes/peer_qr_box.h"
 #include "ui/boxes/report_box_graphics.h"
@@ -119,6 +120,26 @@ namespace {
 
 constexpr auto kDay = Data::WorkingInterval::kDay;
 constexpr auto kPeerIdLinkIndex = uint16(1);
+constexpr auto kBotAutoDownloadNewMessagesPrefix
+	= "botAutoDownloadNewMessages.";
+
+[[nodiscard]] QByteArray BotAutoDownloadNewMessagesKey(PeerId peerId) {
+	return QByteArray(kBotAutoDownloadNewMessagesPrefix)
+		+ QByteArray::number(peerId.value);
+}
+
+[[nodiscard]] bool BotAutoDownloadNewMessagesEnabled(
+		not_null<UserData*> user) {
+	const auto key = BotAutoDownloadNewMessagesKey(user->id);
+	return user->session().local().readPref<bool>(key.constData(), false);
+}
+
+void SetBotAutoDownloadNewMessagesEnabled(
+		not_null<UserData*> user,
+		bool enabled) {
+	const auto key = BotAutoDownloadNewMessagesKey(user->id);
+	user->session().local().writePref<bool>(key.constData(), enabled);
+}
 
 class DraggableUrlClickHandler final : public UrlClickHandler {
 public:
@@ -1294,6 +1315,7 @@ private:
 	void addEditContactAction(not_null<UserData*> user);
 	void addDeleteContactAction(not_null<UserData*> user);
 	void addBotCommandActions(not_null<UserData*> user);
+	void addBotAutoDownloadAction(not_null<UserData*> user);
 	void addFastButtonsMode(not_null<UserData*> user);
 	void addReportAction();
 	void addBlockAction(not_null<UserData*> user);
@@ -2870,6 +2892,7 @@ void ActionsFiller::addBotCommandActions(not_null<UserData*> user) {
 		tr::lng_profile_bot_settings(),
 		u"settings"_q,
 		&st::infoIconSettings);
+	addBotAutoDownloadAction(user);
 	//addBotCommand(tr::lng_profile_bot_privacy(), u"privacy"_q);
 	const auto openUrl = [=](const QString &url) {
 		Core::App().iv().openWithIvPreferred(
@@ -2894,6 +2917,26 @@ void ActionsFiller::addBotCommandActions(not_null<UserData*> user) {
 		rpl::single(true),
 		openPrivacyPolicy,
 		&st::infoIconPrivacyPolicy);
+}
+
+void ActionsFiller::addBotAutoDownloadAction(not_null<UserData*> user) {
+	Expects(user->isBot());
+
+	const auto button = _wrap->add(object_ptr<Ui::SettingsButton>(
+		_wrap,
+		tr::lng_profile_bot_auto_download_new_messages(),
+		st::infoSharedMediaButton));
+	object_ptr<Profile::FloatingIcon>(
+		button,
+		st::menuIconDownload,
+		st::infoSharedMediaButtonIconPosition);
+	button->toggleOn(rpl::single(BotAutoDownloadNewMessagesEnabled(user)));
+	button->toggledValue(
+	) | rpl::filter([=](bool value) {
+		return value != BotAutoDownloadNewMessagesEnabled(user);
+	}) | rpl::on_next([=](bool value) {
+		SetBotAutoDownloadNewMessagesEnabled(user, value);
+	}, button->lifetime());
 }
 
 void ActionsFiller::addReportAction() {

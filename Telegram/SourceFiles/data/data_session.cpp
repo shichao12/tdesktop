@@ -59,6 +59,8 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "data/data_user.h"
 #include "data/data_file_origin.h"
 #include "data/data_download_manager.h"
+#include "data/data_document.h"
+#include "data/data_photo.h"
 #include "data/data_web_page.h"
 #include "iv/iv_rich_page.h"
 #include "data/data_game.h"
@@ -98,8 +100,63 @@ namespace {
 
 constexpr auto kNextForUpgradeGiftTimeout = 5 * crl::time(1000);
 constexpr auto kMaxServiceNotificationMessageSize = 4096;
+constexpr auto kBotAutoDownloadNewMessagesPrefix
+	= "botAutoDownloadNewMessages.";
 
 using ViewElement = HistoryView::Element;
+
+[[nodiscard]] QByteArray BotAutoDownloadNewMessagesKey(PeerId peerId) {
+	return QByteArray(kBotAutoDownloadNewMessagesPrefix)
+		+ QByteArray::number(peerId.value);
+}
+
+[[nodiscard]] bool BotAutoDownloadNewMessagesEnabled(
+		not_null<UserData*> user) {
+	const auto key = BotAutoDownloadNewMessagesKey(user->id);
+	return user->session().local().readPref<bool>(key.constData(), false);
+}
+
+void DownloadNewBotMessageMedia(not_null<HistoryItem*> item) {
+	const auto user = item->history()->peer->asUser();
+	if (!user || !user->isBot()) {
+		return;
+	}
+	const auto bot = not_null<UserData*>(user);
+	if (!BotAutoDownloadNewMessagesEnabled(bot)) {
+		return;
+	}
+	const auto origin = Data::FileOrigin(item->fullId());
+	const auto media = item->media();
+	if (!media) {
+		return;
+	} else if (const auto photo = media->photo()) {
+		if (!photo->loading() && !photo->cancelled()) {
+			photo->load(origin, LoadFromCloudOrLocal, true);
+		}
+	} else if (const auto document = media->document()) {
+		const auto file = not_null<DocumentData*>(document);
+		if (file->status != FileReady
+			|| file->loading()
+			|| file->uploading()
+			|| file->cancelled()) {
+			return;
+		}
+		const auto toCache = file->saveToCache();
+		if (!toCache && !Core::App().canSaveFileWithoutAskingForPath()) {
+			return;
+		}
+		const auto indata = file->filename();
+		if (!indata.isEmpty()
+			&& Core::DetectNameType(indata) == Core::NameType::Executable) {
+			return;
+		}
+		file->save(
+			origin,
+			toCache ? QString() : DocumentFileNameForSave(file),
+			LoadFromCloudOrLocal,
+			true);
+	}
+}
 
 // s: box 100x100
 // m: box 320x320
@@ -3276,6 +3333,7 @@ HistoryItem *Session::addNewMessage(
 				if (const auto adopted = streamed->adoptIncoming(
 						data.c_message())) {
 					CheckForSwitchInlineButton(adopted);
+					DownloadNewBotMessageMedia(adopted);
 					return adopted;
 				}
 			}
@@ -3289,6 +3347,7 @@ HistoryItem *Session::addNewMessage(
 		type);
 	if (type == NewMessageType::Unread) {
 		CheckForSwitchInlineButton(result);
+		DownloadNewBotMessageMedia(result);
 	}
 	return result;
 }

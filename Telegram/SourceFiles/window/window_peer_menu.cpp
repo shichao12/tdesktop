@@ -2985,7 +2985,8 @@ base::weak_qptr<Ui::BoxContent> ShowChooseRecipientBox(
 base::weak_qptr<Ui::BoxContent> ShowForwardMessagesBox(
 		std::shared_ptr<ChatHelpers::Show> show,
 		Data::ForwardDraft &&draft,
-		Fn<void()> &&successCallback) {
+		Fn<void()> &&successCallback,
+		bool singleClickSelects) {
 	const auto session = &show->session();
 	const auto owner = &session->data();
 	const auto itemsList = owner->idsToItems(draft.ids);
@@ -3065,14 +3066,17 @@ base::weak_qptr<Ui::BoxContent> ShowForwardMessagesBox(
 	public:
 		using Chosen = not_null<Data::Thread*>;
 
-		Controller(not_null<Main::Session*> session)
+		Controller(
+			not_null<Main::Session*> session,
+			bool singleClickSelects)
 		: ChooseRecipientBoxController({
 			.session = session,
 			.callback = [=](Chosen thread) {
 				_singleChosen.fire_copy(thread);
 			},
 			.moneyRestrictionError = WriteMoneyRestrictionError,
-		}) {
+		})
+		, _singleClickSelects(singleClickSelects) {
 		}
 
 		std::unique_ptr<PeerListRow> createRestoredRow(
@@ -3089,6 +3093,9 @@ base::weak_qptr<Ui::BoxContent> ShowForwardMessagesBox(
 			const auto monoforum = row->peer()->isMonoforum();
 			if (showLockedError(row) || (count && (forum || monoforum))) {
 				return;
+			} else if (_singleClickSelects && !forum && !monoforum) {
+				delegate()->peerListSetRowChecked(row, !row->checked());
+				_selectionChanges.fire({});
 			} else if (!count || forum || monoforum) {
 				ChooseRecipientBoxController::rowClicked(row);
 			} else if (count) {
@@ -3129,6 +3136,7 @@ base::weak_qptr<Ui::BoxContent> ShowForwardMessagesBox(
 	private:
 		rpl::event_stream<Chosen> _singleChosen;
 		rpl::event_stream<> _selectionChanges;
+		bool _singleClickSelects = false;
 
 	};
 
@@ -3181,7 +3189,9 @@ base::weak_qptr<Ui::BoxContent> ShowForwardMessagesBox(
 	};
 
 	const auto state = [&] {
-		auto controller = std::make_unique<Controller>(session);
+		auto controller = std::make_unique<Controller>(
+			session,
+			singleClickSelects);
 		const auto controllerRaw = controller.get();
 		auto init = [=](not_null<ListBox*> box) {
 			controllerRaw->setSearchNoResultsText(

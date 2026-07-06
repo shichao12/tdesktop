@@ -3417,18 +3417,15 @@ void OverlayWidget::forwardMedia() {
 	if (!_session) {
 		return;
 	}
-	const auto &active = _session->windows();
-	if (active.empty()) {
-		return;
-	}
 	const auto id = (_message && _message->allowsForward())
 		? _message->fullId()
 		: FullMsgId();
 	if (id) {
-		if (!_windowed) {
-			close();
-		}
-		Window::ShowForwardMessagesBox(active.front(), { 1, id });
+		Window::ShowForwardMessagesBox(
+			uiShow(),
+			Data::ForwardDraft{ .ids = { 1, id } },
+			nullptr,
+			true);
 	}
 }
 
@@ -3440,15 +3437,8 @@ void OverlayWidget::fastForwardMediaTo(PeerData *peer) {
 	if (!id) {
 		return;
 	}
-	const auto window = findWindow();
-	if (!window) {
-		return;
-	}
-	if (!_windowed) {
-		close();
-	}
 	FastShareMessagesToPeer(
-		window->uiShow(),
+		uiShow(),
 		{ 1, id },
 		not_null<PeerData*>(peer));
 }

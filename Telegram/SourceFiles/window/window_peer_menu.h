@@ -206,7 +206,8 @@ base::weak_qptr<Ui::BoxContent> ShowChooseRecipientBox(
 base::weak_qptr<Ui::BoxContent> ShowForwardMessagesBox(
 	std::shared_ptr<ChatHelpers::Show> show,
 	Data::ForwardDraft &&draft,
-	Fn<void()> &&successCallback = nullptr);
+	Fn<void()> &&successCallback = nullptr,
+	bool singleClickSelects = false);
 base::weak_qptr<Ui::BoxContent> ShowForwardMessagesBox(
 	not_null<Window::SessionNavigation*> navigation,
 	Data::ForwardDraft &&draft,

@@ -99,6 +99,59 @@ void RefreshLoadedLinkTexts(not_null<Session*> owner) {
 		: result.trimmed();
 }
 
+[[nodiscard]] int BlockedLinkEntityLength(
+		const TextWithEntities &text,
+		const EntityInText &entity) {
+	const auto offset = entity.offset();
+	if (!IsBlockedLinkEntity(entity.type())
+		|| offset < 0
+		|| offset >= text.text.size()
+		|| entity.length() <= 0) {
+		return 0;
+	}
+	return std::min(entity.length(), text.text.size() - offset);
+}
+
+[[nodiscard]] bool MatchesCommonLink(
+		const std::vector<QString> &links,
+		const QString &link) {
+	return !link.isEmpty()
+		&& !links.empty()
+		&& ranges::contains(links, NormalizeLink(link));
+}
+
+[[nodiscard]] bool IsOnlyLinksWithCommonBlockedLink(
+		const TextWithEntities &text,
+		const std::vector<QString> &links) {
+	if (links.empty()) {
+		return false;
+	}
+	auto hasBlockedLink = false;
+	auto ranges = std::vector<std::pair<int, int>>();
+	for (const auto &entity : text.entities) {
+		const auto length = BlockedLinkEntityLength(text, entity);
+		if (!length) {
+			continue;
+		}
+		const auto offset = entity.offset();
+		ranges.emplace_back(offset, length);
+		if (MatchesCommonLink(
+				links,
+				LinkForMatching(text, entity, offset, length))) {
+			hasBlockedLink = true;
+		}
+	}
+	if (!hasBlockedLink) {
+		return false;
+	}
+	auto rest = text.text;
+	ranges::sort(ranges, ranges::greater(), &std::pair<int, int>::first);
+	for (const auto &[offset, length] : ranges) {
+		rest.remove(offset, length);
+	}
+	return rest.trimmed().isEmpty();
+}
+
 [[nodiscard]] ChannelData *JoinedChannelFromLink(
 		not_null<Session*> owner,
 		QString link) {
@@ -252,7 +305,7 @@ void MessageKeywordBlacklist::setCommonLinks(std::vector<QString> links) {
 	_commonLinksNormalized = NormalizeLinkMatches(_commonLinks);
 	save();
 	RefreshLoadedLinkTexts(_owner);
-	_changed.fire({});
+	recomputeLoaded();
 }
 
 void MessageKeywordBlacklist::setCommonTextLinks(std::vector<QString> links) {
@@ -309,6 +362,11 @@ bool MessageKeywordBlacklist::matches(not_null<HistoryItem*> item) const {
 	}
 	const auto peerId = item->history()->peer->id;
 	const auto i = _channelKeywordsFolded.find(peerId);
+	if (IsOnlyLinksWithCommonBlockedLink(
+			item->originalText(),
+			_commonLinksNormalized)) {
+		return true;
+	}
 	if (_commonKeywordsFolded.empty()
 		&& (i == end(_channelKeywordsFolded) || i->second.empty())) {
 		return false;
@@ -325,22 +383,12 @@ std::vector<std::pair<int, int>> MessageKeywordBlacklist::blockedLinkRanges(
 	auto result = std::vector<std::pair<int, int>>();
 	for (const auto &entity : text.entities) {
 		const auto offset = entity.offset();
-		if (!IsBlockedLinkEntity(entity.type())
-			|| offset < 0
-			|| offset >= text.text.size()
-			|| entity.length() <= 0) {
+		const auto length = BlockedLinkEntityLength(text, entity);
+		if (!length) {
 			continue;
 		}
-		const auto length = std::min(
-			entity.length(),
-			text.text.size() - offset);
 		const auto link = LinkForMatching(text, entity, offset, length);
-		auto blocked = false;
-		if (!link.isEmpty() && !_commonLinksNormalized.empty()) {
-			blocked = ranges::contains(
-				_commonLinksNormalized,
-				NormalizeLink(link));
-		}
+		auto blocked = MatchesCommonLink(_commonLinksNormalized, link);
 		if (!blocked
 			&& entity.type() == EntityType::CustomUrl
 			&& !_commonTextLinksFolded.empty()) {

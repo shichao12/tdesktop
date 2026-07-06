@@ -47,6 +47,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/vertical_list.h"
 #include "ui/ui_utility.h"
 #include "styles/style_info.h"
+#include "styles/style_menu_icons.h"
 
 namespace Info {
 namespace Profile {
@@ -387,8 +388,25 @@ object_ptr<Ui::SlideWrap<Ui::RpWidget>> InnerWidget::setupSharedMedia(
 			icon,
 			st::infoSharedMediaButtonIconPosition);
 	};
+	const auto addAutoDownloadButton = [&](
+			not_null<UserData*> user,
+			const style::icon &icon) {
+		auto result = Media::AddAutoDownloadNewMessagesButton(
+			content,
+			user,
+			tracker);
+		object_ptr<Profile::FloatingIcon>(
+			result,
+			icon,
+			st::infoSharedMediaButtonIconPosition);
+	};
 
 	if (!_topic) {
+		if (_peer->isSelf()) {
+			addAutoDownloadButton(
+				_controller->session().user(),
+				st::menuIconDownload);
+		}
 		addStoriesButton(peer, st::infoIconMediaStories);
 		addPeerGiftsButton(peer, st::infoIconMediaGifts);
 		addSavedSublistButton(peer, st::infoIconMediaSaved);

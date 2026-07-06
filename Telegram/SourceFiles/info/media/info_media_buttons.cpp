@@ -30,6 +30,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "info/saved/info_saved_music_widget.h"
 #include "info/stories/info_stories_widget.h"
 #include "main/main_session.h"
+#include "storage/storage_account.h"
 #include "ui/text/text_utilities.h"
 #include "ui/widgets/buttons.h"
 #include "ui/widgets/popup_menu.h"
@@ -42,6 +43,27 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 namespace Info::Media {
 namespace {
+
+constexpr auto kAutoDownloadNewMessagesPrefix
+	= "botAutoDownloadNewMessages.";
+
+[[nodiscard]] QByteArray AutoDownloadNewMessagesKey(PeerId peerId) {
+	return QByteArray(kAutoDownloadNewMessagesPrefix)
+		+ QByteArray::number(peerId.value);
+}
+
+[[nodiscard]] bool AutoDownloadNewMessagesEnabled(
+		not_null<UserData*> user) {
+	const auto key = AutoDownloadNewMessagesKey(user->id);
+	return user->session().local().readPref<bool>(key.constData(), false);
+}
+
+void SetAutoDownloadNewMessagesEnabled(
+		not_null<UserData*> user,
+		bool enabled) {
+	const auto key = AutoDownloadNewMessagesKey(user->id);
+	user->session().local().writePref<bool>(key.constData(), enabled);
+}
 
 [[nodiscard]] bool SeparateSupported(Storage::SharedMediaType type) {
 	using Type = Storage::SharedMediaType;
@@ -207,6 +229,33 @@ not_null<Ui::SettingsButton*> AddButton(
 	});
 	return result;
 };
+
+not_null<Ui::SettingsButton*> AddAutoDownloadNewMessagesButton(
+		Ui::VerticalLayout *parent,
+		not_null<UserData*> user,
+		Ui::MultiSlideTracker &tracker) {
+	auto wrap = parent->add(object_ptr<Ui::SlideWrap<Ui::SettingsButton>>(
+		parent,
+		object_ptr<Ui::SettingsButton>(
+			parent,
+			tr::lng_profile_bot_auto_download_new_messages(),
+			st::infoSharedMediaButton))
+	)->setDuration(
+		st::infoSlideDuration
+	)->toggleOn(
+		rpl::single(true)
+	);
+	tracker.track(wrap);
+	auto result = wrap->entity();
+	result->toggleOn(rpl::single(AutoDownloadNewMessagesEnabled(user)));
+	result->toggledValue(
+	) | rpl::filter([=](bool value) {
+		return value != AutoDownloadNewMessagesEnabled(user);
+	}) | rpl::on_next([=](bool value) {
+		SetAutoDownloadNewMessagesEnabled(user, value);
+	}, result->lifetime());
+	return result;
+}
 
 not_null<Ui::SettingsButton*> AddCommonGroupsButton(
 		Ui::VerticalLayout *parent,

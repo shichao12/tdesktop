@@ -120,24 +120,24 @@ namespace {
 
 constexpr auto kDay = Data::WorkingInterval::kDay;
 constexpr auto kPeerIdLinkIndex = uint16(1);
-constexpr auto kBotAutoDownloadNewMessagesPrefix
+constexpr auto kAutoDownloadNewMessagesPrefix
 	= "botAutoDownloadNewMessages.";
 
-[[nodiscard]] QByteArray BotAutoDownloadNewMessagesKey(PeerId peerId) {
-	return QByteArray(kBotAutoDownloadNewMessagesPrefix)
+[[nodiscard]] QByteArray AutoDownloadNewMessagesKey(PeerId peerId) {
+	return QByteArray(kAutoDownloadNewMessagesPrefix)
 		+ QByteArray::number(peerId.value);
 }
 
-[[nodiscard]] bool BotAutoDownloadNewMessagesEnabled(
+[[nodiscard]] bool AutoDownloadNewMessagesEnabled(
 		not_null<UserData*> user) {
-	const auto key = BotAutoDownloadNewMessagesKey(user->id);
+	const auto key = AutoDownloadNewMessagesKey(user->id);
 	return user->session().local().readPref<bool>(key.constData(), false);
 }
 
-void SetBotAutoDownloadNewMessagesEnabled(
+void SetAutoDownloadNewMessagesEnabled(
 		not_null<UserData*> user,
 		bool enabled) {
-	const auto key = BotAutoDownloadNewMessagesKey(user->id);
+	const auto key = AutoDownloadNewMessagesKey(user->id);
 	user->session().local().writePref<bool>(key.constData(), enabled);
 }
 
@@ -1315,7 +1315,7 @@ private:
 	void addEditContactAction(not_null<UserData*> user);
 	void addDeleteContactAction(not_null<UserData*> user);
 	void addBotCommandActions(not_null<UserData*> user);
-	void addBotAutoDownloadAction(not_null<UserData*> user);
+	void addAutoDownloadNewMessagesAction(not_null<UserData*> user);
 	void addFastButtonsMode(not_null<UserData*> user);
 	void addReportAction();
 	void addBlockAction(not_null<UserData*> user);
@@ -2892,7 +2892,7 @@ void ActionsFiller::addBotCommandActions(not_null<UserData*> user) {
 		tr::lng_profile_bot_settings(),
 		u"settings"_q,
 		&st::infoIconSettings);
-	addBotAutoDownloadAction(user);
+	addAutoDownloadNewMessagesAction(user);
 	//addBotCommand(tr::lng_profile_bot_privacy(), u"privacy"_q);
 	const auto openUrl = [=](const QString &url) {
 		Core::App().iv().openWithIvPreferred(
@@ -2919,9 +2919,8 @@ void ActionsFiller::addBotCommandActions(not_null<UserData*> user) {
 		&st::infoIconPrivacyPolicy);
 }
 
-void ActionsFiller::addBotAutoDownloadAction(not_null<UserData*> user) {
-	Expects(user->isBot());
-
+void ActionsFiller::addAutoDownloadNewMessagesAction(
+		not_null<UserData*> user) {
 	const auto button = _wrap->add(object_ptr<Ui::SettingsButton>(
 		_wrap,
 		tr::lng_profile_bot_auto_download_new_messages(),
@@ -2930,12 +2929,12 @@ void ActionsFiller::addBotAutoDownloadAction(not_null<UserData*> user) {
 		button,
 		st::menuIconDownload,
 		st::infoSharedMediaButtonIconPosition);
-	button->toggleOn(rpl::single(BotAutoDownloadNewMessagesEnabled(user)));
+	button->toggleOn(rpl::single(AutoDownloadNewMessagesEnabled(user)));
 	button->toggledValue(
 	) | rpl::filter([=](bool value) {
-		return value != BotAutoDownloadNewMessagesEnabled(user);
+		return value != AutoDownloadNewMessagesEnabled(user);
 	}) | rpl::on_next([=](bool value) {
-		SetBotAutoDownloadNewMessagesEnabled(user, value);
+		SetAutoDownloadNewMessagesEnabled(user, value);
 	}, button->lifetime());
 }
 

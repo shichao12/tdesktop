@@ -25,6 +25,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "ui/wrap/vertical_layout.h"
 #include "ui/ui_utility.h"
 #include "styles/style_info.h"
+#include "styles/style_menu_icons.h"
 
 namespace Info::Saved {
 
@@ -122,6 +123,14 @@ void SublistsWidget::setupOtherTypes() {
 			icon,
 			st::infoSharedMediaButtonIconPosition)->show();
 	};
+	const auto autoDownload = Media::AddAutoDownloadNewMessagesButton(
+		content,
+		peer,
+		tracker);
+	object_ptr<Profile::FloatingIcon>(
+		autoDownload,
+		st::menuIconDownload,
+		st::infoSharedMediaButtonIconPosition)->show();
 
 	addMediaButton(Type::Photo, st::infoIconMediaPhoto);
 	addMediaButton(Type::Video, st::infoIconMediaVideo);

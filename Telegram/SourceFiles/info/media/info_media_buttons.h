@@ -47,6 +47,11 @@ using Type = Storage::SharedMediaType;
 	Type type,
 	Ui::MultiSlideTracker &tracker);
 
+[[nodiscard]] not_null<Ui::SettingsButton*> AddAutoDownloadNewMessagesButton(
+	Ui::VerticalLayout *parent,
+	not_null<UserData*> user,
+	Ui::MultiSlideTracker &tracker);
+
 [[nodiscard]] not_null<Ui::SettingsButton*> AddCommonGroupsButton(
 	Ui::VerticalLayout *parent,
 	not_null<Window::SessionNavigation*> navigation,

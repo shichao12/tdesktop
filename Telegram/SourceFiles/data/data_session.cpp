@@ -100,29 +100,29 @@ namespace {
 
 constexpr auto kNextForUpgradeGiftTimeout = 5 * crl::time(1000);
 constexpr auto kMaxServiceNotificationMessageSize = 4096;
-constexpr auto kBotAutoDownloadNewMessagesPrefix
+constexpr auto kAutoDownloadNewMessagesPrefix
 	= "botAutoDownloadNewMessages.";
 
 using ViewElement = HistoryView::Element;
 
-[[nodiscard]] QByteArray BotAutoDownloadNewMessagesKey(PeerId peerId) {
-	return QByteArray(kBotAutoDownloadNewMessagesPrefix)
+[[nodiscard]] QByteArray AutoDownloadNewMessagesKey(PeerId peerId) {
+	return QByteArray(kAutoDownloadNewMessagesPrefix)
 		+ QByteArray::number(peerId.value);
 }
 
-[[nodiscard]] bool BotAutoDownloadNewMessagesEnabled(
+[[nodiscard]] bool AutoDownloadNewMessagesEnabled(
 		not_null<UserData*> user) {
-	const auto key = BotAutoDownloadNewMessagesKey(user->id);
+	const auto key = AutoDownloadNewMessagesKey(user->id);
 	return user->session().local().readPref<bool>(key.constData(), false);
 }
 
-void DownloadNewBotMessageMedia(not_null<HistoryItem*> item) {
+void DownloadNewAutoDownloadMessageMedia(not_null<HistoryItem*> item) {
 	const auto user = item->history()->peer->asUser();
-	if (!user || !user->isBot()) {
+	if (!user || (!user->isBot() && !user->isSelf())) {
 		return;
 	}
-	const auto bot = not_null<UserData*>(user);
-	if (!BotAutoDownloadNewMessagesEnabled(bot)) {
+	const auto peer = not_null<UserData*>(user);
+	if (!AutoDownloadNewMessagesEnabled(peer)) {
 		return;
 	}
 	const auto origin = Data::FileOrigin(item->fullId());
@@ -3333,7 +3333,7 @@ HistoryItem *Session::addNewMessage(
 				if (const auto adopted = streamed->adoptIncoming(
 						data.c_message())) {
 					CheckForSwitchInlineButton(adopted);
-					DownloadNewBotMessageMedia(adopted);
+					DownloadNewAutoDownloadMessageMedia(adopted);
 					return adopted;
 				}
 			}
@@ -3347,7 +3347,7 @@ HistoryItem *Session::addNewMessage(
 		type);
 	if (type == NewMessageType::Unread) {
 		CheckForSwitchInlineButton(result);
-		DownloadNewBotMessageMedia(result);
+		DownloadNewAutoDownloadMessageMedia(result);
 	}
 	return result;
 }

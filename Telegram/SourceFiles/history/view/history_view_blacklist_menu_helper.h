@@ -14,9 +14,13 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 
 namespace HistoryView {
 
+[[nodiscard]] inline QString BlacklistKeywordFromText(QString text) {
+	return text.simplified();
+}
+
 [[nodiscard]] inline QString BlacklistKeywordFromSelection(
 		const TextForMimeData &selection) {
-	return selection.expanded.simplified();
+	return BlacklistKeywordFromText(selection.expanded);
 }
 
 [[nodiscard]] inline QString BlacklistTagFromHandler(

@@ -3653,6 +3653,22 @@ void HistoryInner::showContextMenu(QContextMenuEvent *e, bool showFromTouch) {
 							blacklist.setCommonTextLinks(std::move(textLinks));
 						},
 						&st::menuIconBlock);
+					const auto keyword = HistoryView::BlacklistKeywordFromText(
+						textLink);
+					if (!keyword.isEmpty()) {
+						_menu->addAction(
+							tr::lng_message_blacklist_add_text_context(
+								tr::now),
+							[=] {
+								auto &data = _controller->session().data();
+								auto &blacklist = data.messageKeywordBlacklist();
+								auto keywords = blacklist.commonKeywords();
+								keywords.push_back(keyword);
+								blacklist.setCommonKeywords(
+									std::move(keywords));
+							},
+							&st::menuIconBlock);
+					}
 				}
 			}
 			const auto blacklistTag = HistoryView::BlacklistTagFromHandler(link);

@@ -1173,6 +1173,28 @@ void AddBlacklistTextLinkAction(
 		&st::menuIconBlock);
 }
 
+void AddBlacklistTextLinkTextAction(
+		not_null<Ui::PopupMenu*> menu,
+		const ClickHandlerPtr &link,
+		Element *view,
+		not_null<Window::SessionController*> controller) {
+	const auto text = BlacklistKeywordFromText(
+		BlacklistTextLinkFromHandler(link, view));
+	if (text.isEmpty()) {
+		return;
+	}
+	menu->addAction(
+		tr::lng_message_blacklist_add_text_context(tr::now),
+		[=] {
+			auto &data = controller->session().data();
+			auto &blacklist = data.messageKeywordBlacklist();
+			auto keywords = blacklist.commonKeywords();
+			keywords.push_back(text);
+			blacklist.setCommonKeywords(std::move(keywords));
+		},
+		&st::menuIconBlock);
+}
+
 void AddBlacklistTagAction(
 		not_null<Ui::PopupMenu*> menu,
 		const ClickHandlerPtr &link,
@@ -1668,6 +1690,7 @@ void FillContextMenuItems(
 	AddCopyLinkAction(result, link);
 	AddBlacklistLinkAction(result, link, list->controller());
 	AddBlacklistTextLinkAction(result, link, view, list->controller());
+	AddBlacklistTextLinkTextAction(result, link, view, list->controller());
 	AddBlacklistTagAction(result, link, list->controller());
 	AddMessageActions(result, request, list);
 

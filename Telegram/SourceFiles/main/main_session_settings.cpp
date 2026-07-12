@@ -130,7 +130,7 @@ QByteArray SessionSettings::serialize() const {
 			<< qint32(_supportAllSearchResults.current() ? 1 : 0)
 			<< qint32(_archiveCollapsed.current() ? 1 : 0)
 			<< qint32(_archiveInMainMenu.current() ? 1 : 0)
-			<< qint32(_skipArchiveInSearch.current() ? 1 : 0)
+			<< qint32(0) // old _skipArchiveInSearch
 			<< qint32(0) // old _mediaLastPlaybackPosition.size());
 			<< qint32(0) // very very old _hiddenPinnedMessages.size());
 			<< qint32(_dialogsFiltersEnabled ? 1 : 0)
@@ -290,7 +290,7 @@ void SessionSettings::addFromSerialized(const QByteArray &serialized) {
 	qint32 archiveCollapsed = _archiveCollapsed.current() ? 1 : 0;
 	qint32 appNotifyAboutPinned = app.notifyAboutPinned() ? 1 : 0;
 	qint32 archiveInMainMenu = _archiveInMainMenu.current() ? 1 : 0;
-	qint32 skipArchiveInSearch = _skipArchiveInSearch.current() ? 1 : 0;
+	qint32 skipArchiveInSearch = 0;
 	qint32 legacyAutoplayGifs = 1;
 	qint32 appLoopAnimatedStickers = app.loopAnimatedStickers() ? 1 : 0;
 	qint32 appLargeEmoji = app.largeEmoji() ? 1 : 0;
@@ -1068,7 +1068,6 @@ void SessionSettings::addFromSerialized(const QByteArray &serialized) {
 	_supportAllSearchResults = (supportAllSearchResults == 1);
 	_archiveCollapsed = (archiveCollapsed == 1);
 	_archiveInMainMenu = (archiveInMainMenu == 1);
-	_skipArchiveInSearch = (skipArchiveInSearch == 1);
 	_hiddenPinnedMessages = std::move(hiddenPinnedMessages);
 	_dialogsFiltersEnabled = (dialogsFiltersEnabled == 1);
 	_supportAllSilent = (supportAllSilent == 1);
@@ -1203,18 +1202,6 @@ bool SessionSettings::archiveInMainMenu() const {
 
 rpl::producer<bool> SessionSettings::archiveInMainMenuChanges() const {
 	return _archiveInMainMenu.changes();
-}
-
-void SessionSettings::setSkipArchiveInSearch(bool skip) {
-	_skipArchiveInSearch = skip;
-}
-
-bool SessionSettings::skipArchiveInSearch() const {
-	return _skipArchiveInSearch.current();
-}
-
-rpl::producer<bool> SessionSettings::skipArchiveInSearchChanges() const {
-	return _skipArchiveInSearch.changes();
 }
 
 MsgId SessionSettings::hiddenPinnedMessageId(

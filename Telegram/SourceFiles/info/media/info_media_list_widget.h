@@ -90,6 +90,10 @@ public:
 
 	void jumpToMessage(MsgId msgId);
 
+	void setTopOverlayHeight(int height);
+
+	void setExternalViewportHeight(int height);
+
 	bool processZoomWheel(not_null<QWheelEvent*> e);
 	void zoomIn();
 	void zoomOut();
@@ -370,6 +374,8 @@ private:
 	bool _wasSelectedText = false; // was some text selected in current drag action
 
 	const std::unique_ptr<DateBadge> _dateBadge;
+	int _topOverlayHeight = 0;
+	int _externalViewportHeight = 0;
 
 	int _selectedLimit = 0;
 	int _storiesAddToAlbumId = 0;

@@ -11,6 +11,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "data/data_local_chat_filters.h"
 #include "data/notify/data_peer_notify_settings.h"
 #include "data/data_authorization.h"
+#include "data/data_message_reaction_id.h"
 #include "ui/rect_part.h"
 
 namespace Support {
@@ -257,6 +258,10 @@ public:
 		return _phoneNumberHidden.value();
 	}
 
+	void setExtraFavoriteReactions(std::vector<Data::ReactionId> list);
+	[[nodiscard]] auto extraFavoriteReactions() const
+	-> const std::vector<Data::ReactionId> &;
+
 private:
 	static constexpr auto kDefaultSupportChatsLimitSlice = 7 * 24 * 60 * 60;
 	static constexpr auto kPhotoEditorHintMaxShowsCount = 5;
@@ -317,6 +322,8 @@ private:
 	std::vector<int32> _moderateCommonGroups;
 
 	rpl::variable<bool> _phoneNumberHidden = false;
+
+	std::vector<Data::ReactionId> _extraFavoriteReactions;
 
 };
 

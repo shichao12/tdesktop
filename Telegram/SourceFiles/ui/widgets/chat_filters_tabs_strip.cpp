@@ -28,6 +28,7 @@ https://github.com/telegramdesktop/tdesktop/blob/master/LEGAL
 #include "menu/menu_checked_action.h"
 #include "ui/widgets/menu/menu_action.h"
 #include "ui/layers/generic_box.h"
+#include "ui/filter_icons.h"
 #include "ui/power_saving.h"
 #include "ui/ui_utility.h"
 #include "ui/widgets/fields/input_field.h"
@@ -599,6 +600,23 @@ not_null<Ui::RpWidget*> AddChatFiltersTabsStrip(
 			std::move(sections),
 			context,
 			paused);
+		if (local) {
+			auto icons = std::vector<const style::internal::Icon*>();
+			icons.reserve(count);
+			icons.push_back(LookupFilterIcon(FilterIcon::All).tabs.get());
+			for (const auto &filter : localList) {
+				icons.push_back(nullptr);
+			}
+			slider->setSectionIcons(std::move(icons));
+		} else {
+			slider->setSectionIcons(ranges::views::all(
+				list
+			) | ranges::views::transform([](const Data::ChatFilter &filter) {
+				return LookupFilterIcon(filter.id()
+					? ComputeFilterIcon(filter)
+					: FilterIcon::All).tabs.get();
+			}) | ranges::to_vector);
+		}
 		const auto sourceChanged = (state->lastLocalShown != local);
 		state->lastLocalShown = local;
 		if (!sectionsChanged && !sourceChanged) {
@@ -738,6 +756,11 @@ not_null<Ui::RpWidget*> AddChatFiltersTabsStrip(
 		controller->localChatFiltersShown() | rpl::to_empty,
 		Data::AmPremiumValue(session) | rpl::to_empty
 	) | rpl::on_next(rebuild, wrap->lifetime());
+	Core::App().settings().chatFiltersTabsModeValue(
+	) | rpl::on_next([=](ChatsFiltersTabsMode mode) {
+		slider->setTabsMode(mode);
+		scrollToIndex(slider->activeSection(), anim::type::instant);
+	}, wrap->lifetime());
 	rebuild();
 
 	session->data().chatsFilters().isChatlistChanged(

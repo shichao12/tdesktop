@@ -455,7 +455,7 @@ if customRunCommand:
 stage('patches', """
     git clone https://github.com/desktop-app/patches.git
     cd patches
-    git checkout b4612b87914e5116e9910ff175d8e11766e96f43
+    git checkout 27efa67b60881c52b112cf924d705e573d03a0ab
 mac:
     git clone https://github.com/desktop-app/qt6_highsierra_patches.git qt6_highsierra
     cd qt6_highsierra
@@ -1176,7 +1176,7 @@ stage('regex', """
 """)
 
 stage('ffmpeg', """
-    git clone --depth 1 -b n6.1.1 https://github.com/FFmpeg/FFmpeg.git ffmpeg
+    git clone --depth 1 -b n6.1.6 https://github.com/FFmpeg/FFmpeg.git ffmpeg
     cd ffmpeg
 win:
 depends:patches/ffmpeg.patch
